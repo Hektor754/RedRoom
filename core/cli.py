@@ -30,5 +30,6 @@ def parse_args():
         help='Tool target IP or IP range'
     )
 
-    args = parser.parse_args()
+    args,unknown = parser.parse_known_args()
+    args.extra = unknown
     return args
