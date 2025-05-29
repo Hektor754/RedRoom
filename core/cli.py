@@ -9,27 +9,30 @@ def parse_args():
     parser.add_argument(
         '-c','--category',
         required=True,
-        help='Tool category (e.g., recon, exploit, etc.)'
+        choices=['recon'],
+        help='Tool category (e.g., recon)'
     )
 
     parser.add_argument(
         '-t', '--tool',
         required=True,
-        help='Tool name within category (e.g., hostscan, portscan)'
+        choices=['hostscan'],
+        help='Tool name within category (e.g., hostscan)'
     )
 
     parser.add_argument(
         '-m','--method',
         required=False,
+        choices=['arp', 'tcp'],
         help='Method used by the tool (e.g., icmp, arp, tcp)'
     )
 
     parser.add_argument(
         '-r','--range',
         required=True,
-        help='Tool target IP or IP range'
+        help='Tool target IP or IP range (CIDR notation supported)'
     )
 
-    args,unknown = parser.parse_known_args()
+    args, unknown = parser.parse_known_args()
     args.extra = unknown
     return args

@@ -11,104 +11,104 @@ init()
 def parse_tcp_flags(extra_args):
     parser = argparse.ArgumentParser()
     parser.add_argument('--stealth', '-s', action='store_true', help='Perform stealth (SYN) scan')
-    parser.add_argument('--port', '-p', type=int, default=80, help='Target port (default: 80)')
-    return parser.parse_args(extra_args)
+    parser.add_argument('--port', '-p', type=str, default=None, help='Comma-separated list of ports (e.g., 80,443)')
+    args, unknown = parser.parse_known_args(extra_args)
+    if unknown:
+        print(f"[!] Warning: Unknown TCP scan options ignored: {unknown}")
 
-def get_own_ips():
-    ips = []
-    for iface in get_if_list():
+    if args.port:
         try:
-            ip = get_if_addr(iface)
-            if ip and not ip.startswith("127."):
-                ips.append(ip)
-        except Exception:
-            continue
-    return ips
+            ports = [int(p.strip()) for p in args.port.split(',')]
+            for port in ports:
+                if port < 1 or port > 65535:
+                    raise ValueError(f"Port {port} out of valid range 1-65535")
+            args.port = ports
+        except ValueError as e:
+            print(f"[!] Invalid port list: {e}")
+            exit(1)
+    else:
+        args.port = None
 
-def print_banner(port, stealth):
+    return args
+
+def print_banner(stealth):
     scan_type = "STEALTH (SYN)" if stealth else "CONNECT"
     print(f"\n{'-'*60}")
-    print(colored(f"[+] Starting TCP {scan_type} scan on port {port}", "cyan"))
+    print(colored(f"[+] Starting TCP {scan_type} host discovery scan", "cyan"))
     print(f"{'-'*60}")
-    print(f"{'Host':<20}{'Port':<10}{'Status':<10}")
-    print(f"{'-'*40}")
+    print(f"{'Host':<20}{'Status':<10}")
+    print(f"{'-'*30}")
 
-def print_result(ip, port, status):
+def print_host_result(ip, status):
     status_colors = {
-        "OPEN": "green",
-        "CLOSED": "red",
-        "FILTERED": "yellow",
-        "TIMEOUT": "magenta"
+        "ACTIVE": "green",
+        "INACTIVE": "red"
     }
-    print(f"{str(ip):<20}{str(port):<10}{colored(status, status_colors.get(status, 'white'))}")
+    print(f"{str(ip):<20}{colored(status, status_colors.get(status, 'white'))}")
 
 def tcp_scan(ip_range, tcp_flags):
-    return tcp_stealth_scan(ip_range, tcp_flags) if tcp_flags and tcp_flags.stealth else tcp_connect_scan(ip_range, tcp_flags)
-
-def tcp_connect_scan(ip_range, tcp_flags=None):
-    ports = [tcp_flags.port] if tcp_flags and hasattr(tcp_flags, 'port') else COMMON_PORTS
-    open_hosts = []
-    own_ips = get_own_ips()
-
     try:
         network = ipaddress.ip_network(ip_range, strict=False)
     except ValueError:
         print(colored(f"[!] Invalid IP range: {ip_range}", "red"))
-        return open_hosts
+        return []
 
-    for port in ports:
-        print_banner(port, stealth=False)
-        for ip in network.hosts():
-            if str(ip) in own_ips:
-                continue
+    # Validate ports if specified
+    if tcp_flags.port:
+        for port in tcp_flags.port:
+            if port < 1 or port > 65535:
+                print("[!] Invalid port number specified. Must be between 1 and 65535.")
+                return []
+        ports = tcp_flags.port
+    else:
+        ports = COMMON_PORTS
+
+    if tcp_flags.stealth:
+        return tcp_stealth_scan(network, ports)
+    else:
+        return tcp_connect_scan(network, ports)
+
+def tcp_connect_scan(network, ports):
+    active_hosts = []
+
+    print_banner(stealth=False)
+
+    for ip in network.hosts():
+        for port in ports:
             try:
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(0.5)
+                sock.settimeout(1)
                 result = sock.connect_ex((str(ip), port))
                 sock.close()
                 if result == 0:
-                    print_result(ip, port, "OPEN")
-                    open_hosts.append(str(ip))
-                else:
-                    print_result(ip, port, "CLOSED")
+                    print_host_result(ip, "ACTIVE")
+                    active_hosts.append(str(ip))
+                    break
             except Exception as e:
-                print_result(ip, port, "ERROR")
-    return open_hosts
+                print(f"[!] Error scanning {ip}:{port} - {e}")
+        else:
+            print_host_result(ip, "INACTIVE")
 
-def tcp_stealth_scan(ip_range, tcp_flags):
-    ports = [tcp_flags.port] if tcp_flags and hasattr(tcp_flags, 'port') else COMMON_PORTS
-    open_hosts = []
-    own_ips = get_own_ips()
+    return active_hosts
 
-    try:
-        network = ipaddress.ip_network(ip_range, strict=False)
-    except ValueError:
-        print(colored(f"[!] Invalid IP range: {ip_range}", "red"))
-        return open_hosts
+def tcp_stealth_scan(network, ports):
+    active_hosts = []
 
-    for port in ports:
-        print_banner(port, stealth=True)
-        for ip in network.hosts():
-            if str(ip) in own_ips:
-                continue
-            pkt = IP(dst=str(ip)) / TCP(dport=port, flags='S')
+    print_banner(stealth=True)
+
+    for ip in network.hosts():
+        for port in ports:
             try:
+                pkt = IP(dst=str(ip)) / TCP(dport=port, flags='S')
                 resp = sr1(pkt, timeout=1, verbose=0)
-                if resp is None:
-                    print_result(ip, port, "FILTERED")
-                elif resp.haslayer(TCP):
-                    tcp_layer = resp.getlayer(TCP)
-                    if tcp_layer.flags == 0x12:
-                        print_result(ip, port, "OPEN")
-                        open_hosts.append(str(ip))
-                        rst_pkt = IP(dst=str(ip)) / TCP(dport=port, flags='R')
-                        sr1(rst_pkt, timeout=1, verbose=0)
-                    elif tcp_layer.flags == 0x14:
-                        print_result(ip, port, "CLOSED")
-                    else:
-                        print_result(ip, port, "UNKNOWN")
-                else:
-                    print_result(ip, port, "UNKNOWN")
+                if resp and resp.haslayer(TCP) and resp.getlayer(TCP).flags == 0x12:
+                    sr1(IP(dst=str(ip)) / TCP(dport=port, flags='R'), timeout=1, verbose=0)
+                    print_host_result(ip, "ACTIVE")
+                    active_hosts.append(str(ip))
+                    break
             except Exception as e:
-                print_result(ip, port, "ERROR")
-    return open_hosts
+                print(f"[!] Error scanning {ip}:{port} - {e}")
+        else:
+            print_host_result(ip, "INACTIVE")
+
+    return active_hosts
