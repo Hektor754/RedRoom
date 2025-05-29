@@ -2,8 +2,8 @@ import argparse
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        prog='killshot',
-        description='Killshot: All-in-one Hacking Toolkit'
+        prog='redroom',
+        description='RedRoom: All-in-one Hacking Toolkit'
     )
 
     parser.add_argument(
