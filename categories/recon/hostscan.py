@@ -1,5 +1,6 @@
 from .methods.arp_scan import arp_scan
 from .methods.tcp_scan import parse_tcp_flags, tcp_scan
+from .methods.icmp_scan import icmp_scan
 import ipaddress
 
 def run(args):
@@ -23,12 +24,12 @@ def run(args):
             if "winpcap is not installed" in str(e).lower():
                 print("[!] Npcap/WinPcap not found or not installed properly.")
                 print("[*] Falling back to ICMP scan...")
-                # TODO: Implement ICMP fallback here if desired
+                results = icmp_scan(args.range)
+                print(f"\n[+] ICMP Fallback Scan found {len(results)} active hosts")
             else:
                 raise
         except Exception as e:
             print(f"[!] Unexpected error during ARP scan: {e}")
-
     elif method == "tcp":
         tcp_flags = parse_tcp_flags(args.extra)
         try:
@@ -36,6 +37,15 @@ def run(args):
             print(f"\n[+] TCP Scan found {len(results)} active hosts")
         except Exception as e:
             print(f"[!] Unexpected error during TCP scan: {e}")
+    elif method == "icmp":
+        try:
+            results = icmp_scan(args.range)
+            print(f"\n[+] ICMP Scan found {len(results)} active hosts")
+        except RuntimeError as e:
+            print("[!] Taking too long to scan host.")
+            print("[!] Host appears to be down...")
+        except Exception as e:
+            print(f"[!] Unexpected error during ICMP scan: {e}")
 
     else:
         print(f"[!] Unknown method '{method}'. Valid options: arp, tcp")

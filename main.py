@@ -16,11 +16,12 @@ def main():
         print(f"[!] Error: Invalid tool '{args.tool}'. Valid options: {', '.join(valid_tools)}")
         return
 
-    if args.category == "recon" and args.tool == "hostscan":
-        try:
-            hostscan.run(args)
-        except Exception as e:
-            print(f"[!] Unexpected error during scan: {e}")
+    if args.category == "recon":
+        if args.tool == "hostscan":
+            try:
+                hostscan.run(args)
+            except Exception as e:
+                print(f"[!] Unexpected error during scan: {e}")
 
 
 if __name__ == "__main__":
