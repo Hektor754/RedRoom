@@ -23,7 +23,7 @@ def parse_args():
     parser.add_argument(
         '-m','--method',
         required=False,
-        choices=['arp', 'tcp'],
+        choices=['arp', 'tcp','icmp'],
         help='Method used by the tool (e.g., icmp, arp, tcp)'
     )
 
