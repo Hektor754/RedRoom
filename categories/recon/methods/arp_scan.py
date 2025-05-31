@@ -1,7 +1,8 @@
 from scapy.all import ARP, Ether, srp
+from concurrent.futures import ThreadPoolExecutor
+from ipaddress import ip_network
 from termcolor import colored
 from colorama import init
-from ipaddress import ip_network, AddressValueError
 
 init()
 
@@ -19,7 +20,7 @@ def print_arp_result(ip, status):
     }
     print(f"{ip:<20}{colored(status, status_colors.get(status, 'white'))}")
 
-def arp_scan(target_ip):
+def arp_scan(target_ip, max_workers=50):
     try:
         network = ip_network(target_ip, strict=False)
     except ValueError:
@@ -28,22 +29,24 @@ def arp_scan(target_ip):
 
     print_arp_banner()
 
-    arp_request = ARP(pdst=str(network))
-    broadcast = Ether(dst="ff:ff:ff:ff:ff:ff")
-    arp_request_broadcast = broadcast / arp_request
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        results = executor.map(arp_request_ip, network.hosts())
 
-    try:
-        answered_list = srp(arp_request_broadcast, timeout=2, verbose=False)[0]
-    except Exception as e:
-        print(f"[!] Error sending packets: {e}")
-        return []
-
-    active_ips = {received.psrc for sent, received in answered_list}
-
-    for ip in network.hosts():
-        if str(ip) in active_ips:
-            print_arp_result(str(ip), "ACTIVE")
+    active_ips = []
+    for ip, active in results:
+        if active:
+            print_arp_result(ip, "ACTIVE")
+            active_ips.append(ip)
         else:
-            print_arp_result(str(ip), "INACTIVE")
+            print_arp_result(ip, "INACTIVE")
 
-    return list(active_ips)
+    return active_ips
+
+def arp_request_ip(ip):
+    arp_req = ARP(pdst=str(ip))
+    ether = Ether(dst="ff:ff:ff:ff:ff:ff")
+    packet = ether / arp_req
+    ans, _ = srp(packet, timeout=1, verbose=False)
+    for sent, received in ans:
+        return (str(ip), True)
+    return (str(ip), False)
