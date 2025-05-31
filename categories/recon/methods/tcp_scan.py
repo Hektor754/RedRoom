@@ -48,18 +48,19 @@ def print_host_result(ip, status):
     }
     print(f"{str(ip):<20}{colored(status, status_colors.get(status, 'white'))}")
 
-def connect_ip_host(ip, ports):
-    for port in ports:
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(1)
-            result = sock.connect_ex((str(ip), port))
-            sock.close()
-            if result == 0:
-                return (str(ip), True)
-        except Exception:
-            pass
-    return (str(ip), False)
+def tcp_scan(ip_range, tcp_flags, max_workers=MAX_WORKERS):
+    try:
+        network = ipaddress.ip_network(ip_range, strict=False)
+    except ValueError:
+        print(colored(f"[!] Invalid IP range: {ip_range}", "red"))
+        return []
+
+    ports = tcp_flags.port if tcp_flags.port else COMMON_PORTS
+
+    if tcp_flags.stealth:
+        return tcp_stealth_scan(network, ports)
+    else:
+        return tcp_connect_scan(network, ports, max_workers)
 
 def tcp_connect_scan(network, ports, max_workers=MAX_WORKERS):
     active_hosts = []
@@ -93,20 +94,19 @@ def tcp_stealth_scan(network, ports, max_workers= MAX_WORKERS):
 
     return active_hosts
 
-def tcp_scan(ip_range, tcp_flags, max_workers=MAX_WORKERS):
-    try:
-        network = ipaddress.ip_network(ip_range, strict=False)
-    except ValueError:
-        print(colored(f"[!] Invalid IP range: {ip_range}", "red"))
-        return []
+def connect_ip_host(ip, ports):
+    for port in ports:
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1)
+            result = sock.connect_ex((str(ip), port))
+            sock.close()
+            if result == 0:
+                return (str(ip), True)
+        except Exception:
+            pass
+    return (str(ip), False)
 
-    ports = tcp_flags.port if tcp_flags.port else COMMON_PORTS
-
-    if tcp_flags.stealth:
-        return tcp_stealth_scan(network, ports)
-    else:
-        return tcp_connect_scan(network, ports, max_workers)
-    
 def stealth_scan_ip(ip, ports):
     for port in ports:
         try:
