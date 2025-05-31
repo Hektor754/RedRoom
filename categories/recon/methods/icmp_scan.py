@@ -1,4 +1,5 @@
 from scapy.all import IP, ICMP, sr1
+from concurrent.futures import ThreadPoolExecutor
 from termcolor import colored
 from colorama import init
 from ipaddress import ip_network
@@ -19,7 +20,17 @@ def print_icmp_result(ip, status):
     }
     print(f"{ip:<20}{colored(status, status_colors.get(status, 'white'))}")
 
-def icmp_scan(target_ip):
+def ping_ip(ip):
+    try:
+        pkt = IP(dst=str(ip)) / ICMP()
+        resp = sr1(pkt, timeout=1, verbose=0)
+        if resp:
+            return (str(ip), True)
+    except Exception:
+        pass
+    return (str(ip), False)
+
+def icmp_scan(target_ip, max_workers=50):
     try:
         network = ip_network(target_ip, strict=False)
     except ValueError:
@@ -27,12 +38,15 @@ def icmp_scan(target_ip):
         return []
 
     print_icmp_banner()
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        results = executor.map(ping_ip, network.hosts())
+
     active_ips = []
 
-    for ip in network.hosts():
+    for ip, is_up in results:
         try:
-            response = sr1(IP(dst=str(ip)) / ICMP(), timeout=1, verbose=0)
-            if response:
+            if is_up:
                 print_icmp_result(str(ip), "ACTIVE")
                 active_ips.append(str(ip))
             else:
