@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from termcolor import colored
 from colorama import init
 from ipaddress import ip_network
+import time
 
 init()
 
@@ -20,7 +21,7 @@ def print_icmp_result(ip, status):
     }
     print(f"{ip:<20}{colored(status, status_colors.get(status, 'white'))}")
 
-def icmp_scan(target_ip, max_workers=50):
+def icmp_scan(target_ip, timeout, retries, max_workers=50):
     try:
         network = ip_network(target_ip, strict=False)
     except ValueError:
@@ -30,7 +31,7 @@ def icmp_scan(target_ip, max_workers=50):
     print_icmp_banner()
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        results = executor.map(ping_ip, network.hosts())
+        results = executor.map(lambda ip: ping_ip(ip, timeout, retries), network.hosts())
 
     active_ips = []
 
@@ -46,12 +47,15 @@ def icmp_scan(target_ip, max_workers=50):
 
     return active_ips
 
-def ping_ip(ip):
+def ping_ip(ip, timeout, retries):
     try:
         pkt = IP(dst=str(ip)) / ICMP()
-        resp = sr1(pkt, timeout=1, verbose=0)
-        if resp:
-            return (str(ip), True)
+
+        for attempt in range(retries):
+            resp = sr1(pkt, timeout, verbose=0)
+            if resp:
+                return (str(ip), True)
+            time.sleep(0.1)
     except Exception:
         pass
     return (str(ip), False)
