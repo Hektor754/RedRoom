@@ -24,7 +24,7 @@ def run(args):
             if "winpcap is not installed" in str(e).lower():
                 print("[!] Npcap/WinPcap not found or not installed properly.")
                 print("[*] Falling back to ICMP scan...")
-                results = icmp_scan(args.range)
+                results = icmp_scan(args.range, args.timeout, args.retries)
                 print(f"\n[+] ICMP Fallback Scan found {len(results)} active hosts")
             else:
                 raise
