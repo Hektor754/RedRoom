@@ -18,7 +18,7 @@ def run(args):
 
     if method == "arp":
         try:
-            results = arp_scan(args.range)
+            results = arp_scan(args.range,args.timeout,args.retries)
             print(f"\n[+] ARP Scan found {len(results)} active hosts")
         except RuntimeError as e:
             if "winpcap is not installed" in str(e).lower():
@@ -33,13 +33,13 @@ def run(args):
     elif method == "tcp":
         tcp_flags = parse_tcp_flags(args.extra)
         try:
-            results = tcp_scan(args.range, tcp_flags)
+            results = tcp_scan(args.range, tcp_flags, args.timeout, args.retries)
             print(f"\n[+] TCP Scan found {len(results)} active hosts")
         except Exception as e:
             print(f"[!] Unexpected error during TCP scan: {e}")
     elif method == "icmp":
         try:
-            results = icmp_scan(args.range)
+            results = icmp_scan(args.range, args.timeout, args.retries)
             print(f"\n[+] ICMP Scan found {len(results)} active hosts")
         except RuntimeError as e:
             print("[!] Taking too long to scan host.")
