@@ -20,16 +20,6 @@ def print_icmp_result(ip, status):
     }
     print(f"{ip:<20}{colored(status, status_colors.get(status, 'white'))}")
 
-def ping_ip(ip):
-    try:
-        pkt = IP(dst=str(ip)) / ICMP()
-        resp = sr1(pkt, timeout=1, verbose=0)
-        if resp:
-            return (str(ip), True)
-    except Exception:
-        pass
-    return (str(ip), False)
-
 def icmp_scan(target_ip, max_workers=50):
     try:
         network = ip_network(target_ip, strict=False)
@@ -55,3 +45,13 @@ def icmp_scan(target_ip, max_workers=50):
             print(f"[!] Error probing {ip}: {e}")
 
     return active_ips
+
+def ping_ip(ip):
+    try:
+        pkt = IP(dst=str(ip)) / ICMP()
+        resp = sr1(pkt, timeout=1, verbose=0)
+        if resp:
+            return (str(ip), True)
+    except Exception:
+        pass
+    return (str(ip), False)
