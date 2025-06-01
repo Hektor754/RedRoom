@@ -33,6 +33,22 @@ def parse_args():
         help='Tool target IP or IP range (CIDR notation supported)'
     )
 
+    parser.add_argument(
+        '--timeout',
+        type=float,
+        default=1.0,
+        required=False,
+        help='Timeout in seconds to wait for each probe (default: 1.0)'
+    )
+
+    parser.add_argument(
+        '--retries',
+        type=int,
+        default=1,
+        required=False,
+        help='Number of retries if no response (default: 1)'
+    )
+
     args, unknown = parser.parse_known_args()
     args.extra = unknown
     return args
