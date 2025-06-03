@@ -35,11 +35,13 @@ def arp_scan(target_ip, timeout, retries, max_workers=50):
 
     active_ips = []
     for ip, active in results:
-        if active:
-            print_arp_result(ip, "ACTIVE")
-            active_ips.append(ip)
-        else:
-            print_arp_result(ip, "INACTIVE")
+        status = "ACTIVE" if active else "INACTIVE"
+        print_arp_result(ip, status)
+        active_ips.append({
+            "ip": ip,
+            "status": status
+        })
+    print_summary(active_ips)
 
     return active_ips
 
@@ -54,3 +56,20 @@ def arp_request_ip(ip,timeout,retries):
             return (str(ip), True)
         time.sleep(0.1)
     return (str(ip), False)
+
+def print_summary(results):
+    total = 0
+    active_hosts = 0
+    down_hosts = 0
+
+    for ip,status in results:
+        total += 1
+        if status:
+            active_hosts += 1
+        else:
+            down_hosts += 1
+
+    print("\n ARP scan summary: ")
+    print(f"-Total hosts scanned: {total}")
+    print(f"-Hosts active: {active_hosts}")
+    print(f"-Hosts down: {down_hosts}")
