@@ -3,7 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from ipaddress import ip_network
 from termcolor import colored
 from colorama import init
-from utils import print_summary,save_results_csv,save_results_json
+from utils import handle_scan_output
 import time
 
 init()
@@ -42,17 +42,8 @@ def arp_scan(target_ip, timeout, retries, filename, ftype, max_workers=50):
             "ip": ip,
             "status": status
         })
-    print_summary(active_ips,scantype="ARP")
 
-    if ftype and not filename:
-        filename = f"scan_output.{ftype}"
-    if filename:
-        if ftype not in ("csv", "json"):
-            print(f"[!] Unsupported output format: {ftype}")           
-        elif ftype == "csv":
-            save_results_csv(active_ips,filename)
-        elif ftype == "json":
-            save_results_json(active_ips,filename)       
+    handle_scan_output(active_ips, scantype="ARP", filename=filename, ftype=ftype)       
         
     return active_ips
 
