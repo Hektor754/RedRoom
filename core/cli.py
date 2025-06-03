@@ -49,6 +49,21 @@ def parse_args():
         help='Number of retries if no response (default: 1)'
     )
 
+    parser.add_argument(
+        '--output',
+        type=str,
+        default=None,
+        help='Output to save results on a file'
+    )
+
+    parser.add_argument(
+        '--format',
+        choices=['json','csv'],
+        type=str,
+        default=None,
+        help='format to save results on a file'
+    )    
+
     args, unknown = parser.parse_known_args()
     args.extra = unknown
     return args
