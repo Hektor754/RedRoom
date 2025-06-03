@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from ipaddress import ip_network
 from termcolor import colored
 from colorama import init
+from utils import print_summary,save_results_csv,save_results_json
 import time
 
 init()
@@ -21,7 +22,7 @@ def print_arp_result(ip, status):
     }
     print(f"{ip:<20}{colored(status, status_colors.get(status, 'white'))}")
 
-def arp_scan(target_ip, timeout, retries, max_workers=50):
+def arp_scan(target_ip, timeout, retries, filename, ftype, max_workers=50):
     try:
         network = ip_network(target_ip, strict=False)
     except ValueError:
@@ -41,8 +42,18 @@ def arp_scan(target_ip, timeout, retries, max_workers=50):
             "ip": ip,
             "status": status
         })
-    print_summary(active_ips)
+    print_summary(active_ips,scantype="ARP")
 
+    if ftype and not filename:
+        filename = f"scan_output.{ftype}"
+    if filename:
+        if ftype not in ("csv", "json"):
+            print(f"[!] Unsupported output format: {ftype}")           
+        elif ftype == "csv":
+            save_results_csv(active_ips,filename)
+        elif ftype == "json":
+            save_results_json(active_ips,filename)       
+        
     return active_ips
 
 def arp_request_ip(ip,timeout,retries):
@@ -56,20 +67,3 @@ def arp_request_ip(ip,timeout,retries):
             return (str(ip), True)
         time.sleep(0.1)
     return (str(ip), False)
-
-def print_summary(results):
-    total = 0
-    active_hosts = 0
-    down_hosts = 0
-
-    for ip,status in results:
-        total += 1
-        if status:
-            active_hosts += 1
-        else:
-            down_hosts += 1
-
-    print("\n ARP scan summary: ")
-    print(f"-Total hosts scanned: {total}")
-    print(f"-Hosts active: {active_hosts}")
-    print(f"-Hosts down: {down_hosts}")
