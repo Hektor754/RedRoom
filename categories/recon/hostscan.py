@@ -18,8 +18,7 @@ def run(args):
 
     if method == "arp":
         try:
-            results = arp_scan(args.range,args.timeout,args.retries)
-            print(f"\n[+] ARP Scan found {len(results)} active hosts")
+            results = arp_scan(args.range,args.timeout,args.retries, args.output, args.format)
         except RuntimeError as e:
             if "winpcap is not installed" in str(e).lower():
                 print("[!] Npcap/WinPcap not found or not installed properly.")
