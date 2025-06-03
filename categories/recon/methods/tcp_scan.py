@@ -1,11 +1,12 @@
 from scapy.all import IP, TCP, sr1
-import argparse
-import socket
-import ipaddress
 from termcolor import colored
 from colorama import init
 from concurrent.futures import ThreadPoolExecutor
+from utils import handle_scan_output
 import time
+import argparse
+import socket
+import ipaddress
 
 MAX_WORKERS = 50
 COMMON_PORTS = [21, 22, 23, 25, 53, 80, 110, 135, 139, 443]
@@ -49,7 +50,7 @@ def print_host_result(ip, status):
     }
     print(f"{str(ip):<20}{colored(status, status_colors.get(status, 'white'))}")
 
-def tcp_scan(ip_range, tcp_flags, timeout, retries, max_workers=MAX_WORKERS):
+def tcp_scan(ip_range, tcp_flags, timeout, retries, filename, ftype, max_workers=MAX_WORKERS):
     try:
         network = ipaddress.ip_network(ip_range, strict=False)
     except ValueError:
@@ -59,39 +60,45 @@ def tcp_scan(ip_range, tcp_flags, timeout, retries, max_workers=MAX_WORKERS):
     ports = tcp_flags.port if tcp_flags.port else COMMON_PORTS
 
     if tcp_flags.stealth:
-        return tcp_stealth_scan(network, ports, timeout, retries)
+        return tcp_stealth_scan(network, ports, timeout, retries, filename, ftype)
     else:
-        return tcp_connect_scan(network, ports, max_workers, timeout, retries)
+        return tcp_connect_scan(network, ports, max_workers, timeout, retries, filename, ftype)
 
-def tcp_connect_scan(network, ports, timeout, retries, max_workers=MAX_WORKERS):
+def tcp_connect_scan(network, ports, timeout, retries, filename, ftype, max_workers=MAX_WORKERS):
     active_hosts = []
     print_banner(stealth=False)
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         results = executor.map(lambda ip: connect_ip_host(ip, ports, timeout, retries), network.hosts())
 
-        for ip, is_up in results:
-            if is_up:
-                print_host_result(ip, "ACTIVE")
-                active_hosts.append(ip)
-            else:
-                print_host_result(ip, "INACTIVE")
+    for ip, active in results:
+        status = "ACTIVE" if active else "INACTIVE"
+        print_host_result(ip, status)
+        active_hosts.append({
+            "ip": ip,
+            "status": status
+        })
+
+    handle_scan_output(active_hosts, scantype="TCP connect", filename=filename, ftype=ftype) 
 
     return active_hosts
 
-def tcp_stealth_scan(network, ports, timeout, retries, max_workers= MAX_WORKERS):
+def tcp_stealth_scan(network, ports, timeout, retries, filename, ftype, max_workers= MAX_WORKERS):
     active_hosts = []
     print_banner(stealth=True)
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         results = executor.map(lambda ip: stealth_scan_ip(ip, ports, timeout, retries), network.hosts())
 
-        for ip, is_up in results:
-            if is_up:
-                print_host_result(ip, "ACTIVE")
-                active_hosts.append(ip)
-            else:
-                print_host_result(ip, "INACTIVE")
+    for ip, active in results:
+        status = "ACTIVE" if active else "INACTIVE"
+        print_host_result(ip, status)
+        active_hosts.append({
+            "ip": ip,
+            "status": status
+        })
+
+    handle_scan_output(active_hosts, scantype="TCP stealth", filename=filename, ftype=ftype)
 
     return active_hosts
 
