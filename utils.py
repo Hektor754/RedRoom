@@ -1,5 +1,6 @@
 import csv
 import json
+import os
 
 
 def print_summary(results,scantype):
@@ -22,4 +23,25 @@ def save_results_csv(results, filename):
 def save_results_json(results,filename):
     with open(filename, "w") as f:
         json.dump(results, f, indent=2)
-    print(f"\n[+] Results saved to {filename}") 
+    print(f"\n[+] Results saved to {filename}")
+
+def handle_scan_output(results, scantype, filename=None, ftype=None):
+    print_summary(results, scantype=scantype)
+
+    if ftype and not filename:
+        filename = f"scan_output.{ftype}"
+
+    if filename and not ftype:
+        ext = os.path.splitext(filename)[1].lower()
+        if ext == ".csv":
+            ftype = "csv"
+        elif ext == ".json":
+            ftype = "json"
+
+    if filename:
+        if ftype not in ("csv", "json"):
+            print(f"[!] Unsupported output format: {ftype}")
+        elif ftype == "csv":
+            save_results_csv(results, filename)
+        elif ftype == "json":
+            save_results_json(results, filename)
