@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from termcolor import colored
 from colorama import init
 from ipaddress import ip_network
+from utils import handle_scan_output
 import time
 
 init()
@@ -21,7 +22,7 @@ def print_icmp_result(ip, status):
     }
     print(f"{ip:<20}{colored(status, status_colors.get(status, 'white'))}")
 
-def icmp_scan(target_ip, timeout, retries, max_workers=50):
+def icmp_scan(target_ip, timeout, retries, filename, ftype, max_workers=50):
     try:
         network = ip_network(target_ip, strict=False)
     except ValueError:
@@ -35,15 +36,15 @@ def icmp_scan(target_ip, timeout, retries, max_workers=50):
 
     active_ips = []
 
-    for ip, is_up in results:
-        try:
-            if is_up:
-                print_icmp_result(str(ip), "ACTIVE")
-                active_ips.append(str(ip))
-            else:
-                print_icmp_result(str(ip), "INACTIVE")
-        except Exception as e:
-            print(f"[!] Error probing {ip}: {e}")
+    for ip, active in results:
+        status = "ACTIVE" if active else "INACTIVE"
+        print_icmp_result(ip, status)
+        active_ips.append({
+            "ip": ip,
+            "status": status
+        })
+
+    handle_scan_output(active_ips, scantype="ICMP", filename=filename, ftype=ftype) 
 
     return active_ips
 
