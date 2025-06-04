@@ -3,7 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from termcolor import colored
 from colorama import init
 from ipaddress import ip_network
-from utils import handle_scan_output
+from utils import handle_scan_output,resolve_hostname
 import time
 
 init()
@@ -12,15 +12,15 @@ def print_icmp_banner():
     print("\n" + "-"*60)
     print(colored("[+] Starting ICMP host discovery scan", "cyan"))
     print("-"*60)
-    print(f"{'Host':<20}{'Status':<10}")
-    print("-"*30)
+    print(f"{'Hostname':<20}{'Host':<20}{'Status':<10}")
+    print("-"*60)
 
-def print_icmp_result(ip, status):
+def print_icmp_result(hostname, ip, status):
     status_colors = {
         "ACTIVE": "green",
         "INACTIVE": "red"
     }
-    print(f"{ip:<20}{colored(status, status_colors.get(status, 'white'))}")
+    print(f"{hostname:<20}{ip:<20}{colored(status, status_colors.get(status, 'white'))}")
 
 def icmp_scan(target_ip, timeout, retries, filename, ftype, max_workers=50):
     try:
@@ -36,10 +36,11 @@ def icmp_scan(target_ip, timeout, retries, filename, ftype, max_workers=50):
 
     active_ips = []
 
-    for ip, active in results:
+    for hostname, ip, active in results:
         status = "ACTIVE" if active else "INACTIVE"
-        print_icmp_result(ip, status)
+        print_icmp_result(hostname, ip, status)
         active_ips.append({
+            "hostname": hostname,
             "ip": ip,
             "status": status
         })
@@ -51,12 +52,13 @@ def icmp_scan(target_ip, timeout, retries, filename, ftype, max_workers=50):
 def ping_ip(ip, timeout, retries):
     try:
         pkt = IP(dst=str(ip)) / ICMP()
+        hostname = resolve_hostname(ip)
 
         for attempt in range(retries):
             resp = sr1(pkt, timeout, verbose=0)
             if resp:
-                return (str(ip), True)
+                return (hostname, str(ip), True)
             time.sleep(0.1)
     except Exception:
         pass
-    return (str(ip), False)
+    return (hostname, str(ip), False)
