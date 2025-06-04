@@ -2,7 +2,7 @@ from scapy.all import IP, TCP, sr1
 from termcolor import colored
 from colorama import init
 from concurrent.futures import ThreadPoolExecutor
-from utils import handle_scan_output
+from utils import handle_scan_output,resolve_hostname
 import time
 import argparse
 import socket
@@ -40,15 +40,15 @@ def print_banner(stealth):
     print(f"\n{'-'*60}")
     print(colored(f"[+] Starting TCP {scan_type} host discovery scan", "cyan"))
     print(f"{'-'*60}")
-    print(f"{'Host':<20}{'Status':<10}")
-    print(f"{'-'*30}")
+    print(f"{'Hostname':<20}{'Host':<20}{'Status':<10}")
+    print(f"{'-'*60}")
 
-def print_host_result(ip, status):
+def print_host_result(hostname, ip, status):
     status_colors = {
         "ACTIVE": "green",
         "INACTIVE": "red"
     }
-    print(f"{str(ip):<20}{colored(status, status_colors.get(status, 'white'))}")
+    print(f"{hostname:<20}{str(ip):<20}{colored(status, status_colors.get(status, 'white'))}")
 
 def tcp_scan(ip_range, tcp_flags, timeout, retries, filename, ftype, max_workers=MAX_WORKERS):
     try:
@@ -71,10 +71,11 @@ def tcp_connect_scan(network, ports, timeout, retries, filename, ftype, max_work
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         results = executor.map(lambda ip: connect_ip_host(ip, ports, timeout, retries), network.hosts())
 
-    for ip, active in results:
+    for hostname, ip, active in results:
         status = "ACTIVE" if active else "INACTIVE"
-        print_host_result(ip, status)
+        print_host_result(hostname, ip, status)
         active_hosts.append({
+            "hostname": hostname,
             "ip": ip,
             "status": status
         })
@@ -90,10 +91,11 @@ def tcp_stealth_scan(network, ports, timeout, retries, filename, ftype, max_work
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         results = executor.map(lambda ip: stealth_scan_ip(ip, ports, timeout, retries), network.hosts())
 
-    for ip, active in results:
+    for hostname, ip, active in results:
         status = "ACTIVE" if active else "INACTIVE"
-        print_host_result(ip, status)
+        print_host_result(hostname, ip, status)
         active_hosts.append({
+            "hostname": hostname,
             "ip": ip,
             "status": status
         })
@@ -103,6 +105,7 @@ def tcp_stealth_scan(network, ports, timeout, retries, filename, ftype, max_work
     return active_hosts
 
 def connect_ip_host(ip, ports, timeout, retries):
+    hostname = resolve_hostname(ip)
     for port in ports:
         try:
             for _ in range(retries):
@@ -111,13 +114,14 @@ def connect_ip_host(ip, ports, timeout, retries):
                 result = sock.connect_ex((str(ip), port))
                 sock.close()
                 if result == 0:
-                    return (str(ip), True)
+                    return (hostname, str(ip), True)
                 time.sleep(0.1)
         except Exception:
             pass
-    return (str(ip), False)
+    return (hostname, str(ip), False)
 
 def stealth_scan_ip(ip, ports, timeout, retries):
+    hostname = resolve_hostname(ip)
     for port in ports:
         try:
             for _ in range(retries):
@@ -125,8 +129,8 @@ def stealth_scan_ip(ip, ports, timeout, retries):
                 resp = sr1(pkt, timeout, verbose=0)
                 if resp and resp.haslayer(TCP) and resp.getlayer(TCP).flags == 0x12:
                     sr1(IP(dst=str(ip)) / TCP(dport=port, flags='R'), timeout, verbose=0)
-                    return (str(ip), True)
+                    return (hostname, str(ip), True)
                 time.sleep(0.1)
         except Exception:
             pass
-    return (str(ip), False)
+    return (hostname,str(ip), False)
