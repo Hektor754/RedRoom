@@ -61,6 +61,23 @@ def resolve_hostname(target_ip):
         target_addr = ipaddress.ip_address(target_ip)
     except ValueError:
         return "Invalid IP"
+    
+    def mdns_lookup():
+        if shutil.which("avahi-resolve-address") is None:
+            return "Unknown"
+        try:
+            output = subprocess.check_output(
+                ["avahi-resolve-address", target_ip],
+                stderr=subprocess.DEVNULL,
+                timeout=2,
+                encoding='utf-8'                
+            )
+            parts = output.strip().split()
+            if len(parts) >= 2:
+                return parts[1]
+        except Exception:
+            pass
+        return None
 
     def netbios_lookup_nmblookup():
         if shutil.which("nmblookup") is None:
@@ -110,6 +127,13 @@ def resolve_hostname(target_ip):
             return None
         return None
 
+    try:
+        hostname, _, _ = socket.gethostbyaddr(target_ip)
+        if hostname:
+            return hostname
+    except Exception:
+        pass
+
     hostname = netbios_lookup_nmblookup()
     if hostname:
         return hostname
@@ -117,10 +141,15 @@ def resolve_hostname(target_ip):
     hostname = netbios_lookup_nbtstat()
     if hostname:
         return hostname
+    
+    hostname = mdns_lookup()
+    if hostname:
+        return hostname
 
     try:
-        hostname, _, _ = socket.gethostbyaddr(target_ip)
-        if hostname:
+        fqdn = socket.getfqdn(target_ip)
+        if fqdn and fqdn != target_ip:
+            hostname = fqdn
             return hostname
     except Exception:
         pass
