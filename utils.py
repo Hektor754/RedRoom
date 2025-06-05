@@ -5,6 +5,9 @@ import socket
 import ipaddress
 import ifaddr
 import subprocess
+import shutil
+import platform
+import re
 
 
 def print_summary(results,scantype):
@@ -51,17 +54,26 @@ def handle_scan_output(results, scantype, filename=None, ftype=None):
             save_results_json(results, filename)
 
 def resolve_hostname(target_ip):
-        target_addr = ipaddress.IPv4Address(target_ip)
-        adapters = ifaddr.get_adapters()
+    if isinstance(target_ip, (ipaddress.IPv4Address, ipaddress.IPv6Address)):
+        target_ip = str(target_ip)
 
+    try:
+        target_addr = ipaddress.ip_address(target_ip)
+    except ValueError:
+        return "Invalid IP"
+
+    def netbios_lookup_nmblookup():
+        if shutil.which("nmblookup") is None:
+            return None
+        adapters = ifaddr.get_adapters()
         for adapter in adapters:
             for ip in adapter.ips:
-                if isinstance(ip.ip, tuple):
+                if not isinstance(ip.ip, str):
                     continue
-
-                local_ip = ip.ip
-                network = ipaddress.IPv4Network(f"{local_ip}/{ip.network_prefix}", strict=False)
-
+                try:
+                    network = ipaddress.ip_network(f"{ip.ip}/{ip.network_prefix}", strict=False)
+                except ValueError:
+                    continue
                 if target_addr in network:
                     try:
                         output = subprocess.check_output(
@@ -69,16 +81,48 @@ def resolve_hostname(target_ip):
                             stderr=subprocess.DEVNULL,
                             timeout=3
                         ).decode(errors='ignore')
-
                         for line in output.splitlines():
                             if '<00>' in line and 'GROUP' not in line:
-                                hostname = line.split()[0]
-                                if hostname:
-                                    return hostname
+                                parts = line.strip().split()
+                                if parts:
+                                    return parts[0]
                     except Exception:
-                        pass
+                        continue
+        return None
+
+    def netbios_lookup_nbtstat():
+        if platform.system() != "Windows":
+            return None
         try:
-            hostname, _, _ = socket.gethostbyaddr(target_ip)
-            return hostname
+            output = subprocess.check_output(
+                ['nbtstat', '-A', target_ip],
+                stderr=subprocess.DEVNULL,
+                timeout=3,
+                encoding='utf-8',
+                errors='ignore'
+            )
+            for line in output.splitlines():
+                if '<00>' in line and 'UNIQUE' in line.upper():
+                    parts = re.split(r'\s+', line.strip())
+                    if parts:
+                        return parts[0]
         except Exception:
-            return "Unknown"
+            return None
+        return None
+
+    hostname = netbios_lookup_nmblookup()
+    if hostname:
+        return hostname
+
+    hostname = netbios_lookup_nbtstat()
+    if hostname:
+        return hostname
+
+    try:
+        hostname, _, _ = socket.gethostbyaddr(target_ip)
+        if hostname:
+            return hostname
+    except Exception:
+        pass
+
+    return "Unknown"
