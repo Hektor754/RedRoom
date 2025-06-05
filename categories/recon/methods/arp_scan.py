@@ -52,11 +52,12 @@ def arp_request_ip(ip,timeout,retries):
     arp_req = ARP(pdst=str(ip))
     ether = Ether(dst="ff:ff:ff:ff:ff:ff")
     packet = ether / arp_req
-    hostname = resolve_hostname(ip)
+    hostname = "Unknown"
 
     for attempt in range(retries):
         ans, _ = srp(packet, timeout=timeout, verbose=False)
         if ans:
+            hostname = resolve_hostname(ip)
             return (hostname, str(ip), True)
         time.sleep(0.1)
 
