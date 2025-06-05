@@ -105,7 +105,7 @@ def tcp_stealth_scan(network, ports, timeout, retries, filename, ftype, max_work
     return active_hosts
 
 def connect_ip_host(ip, ports, timeout, retries):
-    hostname = resolve_hostname(ip)
+    hostname = "Unknown"
     for port in ports:
         try:
             for _ in range(retries):
@@ -114,6 +114,7 @@ def connect_ip_host(ip, ports, timeout, retries):
                 result = sock.connect_ex((str(ip), port))
                 sock.close()
                 if result == 0:
+                    hostname = resolve_hostname(ip)
                     return (hostname, str(ip), True)
                 time.sleep(0.1)
         except Exception:
@@ -121,7 +122,7 @@ def connect_ip_host(ip, ports, timeout, retries):
     return (hostname, str(ip), False)
 
 def stealth_scan_ip(ip, ports, timeout, retries):
-    hostname = resolve_hostname(ip)
+    hostname = "Unknown"
     for port in ports:
         try:
             for _ in range(retries):
@@ -129,6 +130,7 @@ def stealth_scan_ip(ip, ports, timeout, retries):
                 resp = sr1(pkt, timeout, verbose=0)
                 if resp and resp.haslayer(TCP) and resp.getlayer(TCP).flags == 0x12:
                     sr1(IP(dst=str(ip)) / TCP(dport=port, flags='R'), timeout, verbose=0)
+                    hostname = resolve_hostname(ip)
                     return (hostname, str(ip), True)
                 time.sleep(0.1)
         except Exception:
