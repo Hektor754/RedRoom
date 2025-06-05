@@ -52,11 +52,12 @@ def icmp_scan(target_ip, timeout, retries, filename, ftype, max_workers=50):
 def ping_ip(ip, timeout, retries):
     try:
         pkt = IP(dst=str(ip)) / ICMP()
-        hostname = resolve_hostname(ip)
+        hostname = "Unknown"
 
         for attempt in range(retries):
             resp = sr1(pkt, timeout, verbose=0)
             if resp:
+                hostname = resolve_hostname(ip)
                 return (hostname, str(ip), True)
             time.sleep(0.1)
     except Exception:
