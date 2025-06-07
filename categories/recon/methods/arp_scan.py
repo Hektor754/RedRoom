@@ -9,11 +9,11 @@ import time
 init()
 
 def print_arp_banner():
-    print("\n" + "-"*60)
+    print("\n" + "-"*50)
     print(colored("[+] Starting ARP host discovery scan", "cyan"))
-    print("-"*60)
-    print(f"{'Hostname':<20}{'Host':<20}{'Status':<10}")
-    print("-"*60)
+    print("-"*50)
+    print(f"{'Hostname':<20}{'IP':<20}{'Status':<10}")
+    print("-"*50)
 
 def print_arp_result(hostname, ip, status):
     status_colors = {
