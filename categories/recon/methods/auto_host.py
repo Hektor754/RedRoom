@@ -36,5 +36,5 @@ def auto_hostdiscovery(target_ip, timeout=1.0, retries=1, filename=None, ftype=N
             results = tcp_scan(target_ip, extra_tcp_flags, timeout, retries, filename, ftype)
 
     active_hosts = [host for host in results if host["status"] == "ACTIVE"]
-        
+
     return active_hosts
