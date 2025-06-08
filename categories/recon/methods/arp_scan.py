@@ -22,25 +22,28 @@ def print_arp_result(hostname, ip, status):
     }
     print(f"{hostname:<20}{ip:<20}{colored(status, status_colors.get(status, 'white'))}")
 
-def arp_scan(target_ip, timeout, retries, filename, ftype, max_workers=50):
+def arp_scan(target_ip, timeout, retries, filename, ftype, silent, max_workers=50):
     try:
         network = ip_network(target_ip, strict=False)
     except ValueError:
         print(f"[!] Invalid IP or network range: '{target_ip}'")
         return []
 
-    print_arp_banner()
+    if not silent:
+        print_arp_banner()
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         results = executor.map(lambda ip: arp_request_ip(ip,timeout,retries), network.hosts())
 
     active_ips = []
-    for hostname, ip, active in results:
+    for hostname, ip, active, mac in results:
         status = "ACTIVE" if active else "INACTIVE"
-        print_arp_result(hostname, ip, status)
+        if not silent:
+            print_arp_result(hostname, ip, status)
         active_ips.append({
             "hostname": hostname,
             "ip": ip,
+            "mac": mac,
             "status": status
         })
 
@@ -53,12 +56,14 @@ def arp_request_ip(ip,timeout,retries):
     ether = Ether(dst="ff:ff:ff:ff:ff:ff")
     packet = ether / arp_req
     hostname = "Unknown"
+    mac = "Unknown"
 
     for attempt in range(retries):
         ans, _ = srp(packet, timeout=timeout, verbose=False)
         if ans:
+            mac = ans[0][1].hwsrc
             hostname = resolve_hostname(ip)
-            return (hostname, str(ip), True)
+            return (hostname, str(ip), True, mac)
         time.sleep(0.1)
 
-    return (hostname, str(ip), False)
+    return (hostname, str(ip), False, mac)
