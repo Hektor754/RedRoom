@@ -1,6 +1,8 @@
+from scapy.all import ARP, Ether, srp
+
 def load_oui(filename):
     oui_map = {}
-    with open(filename, "r") as f:
+    with open(filename, "r", encoding="utf-8", errors="ignore") as f:
         for line in f:
             if "(hex)" in line:
                 parts = line.strip().split()
