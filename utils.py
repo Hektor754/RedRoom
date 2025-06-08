@@ -1,3 +1,4 @@
+from termcolor import colored
 import csv
 import json
 import os
@@ -9,6 +10,23 @@ import shutil
 import platform
 import re
 
+def print_hostprofile_results(results):
+    print("\n" + "-" * 90)
+    print(f"{'Hostname':<20}{'IP Address':<18}{'MAC Address':<20}{'Vendor':<30}{'Status':<10}")
+    print("-" * 90)
+
+    for host in results:
+        hostname = host.get("hostname", "Unknown")
+        ip = host.get("ip", "Unknown")
+        mac = host.get("mac", "Unknown")
+        vendor = host.get("vendor", "Unknown")
+        status = host.get("status", "INACTIVE")
+
+        status_colored = colored(status, "green" if status == "ACTIVE" else "red")
+
+        print(f"{hostname:<20}{ip:<18}{mac:<20}{vendor:<30}{status_colored:<10}")
+
+    print("-" * 90)
 
 def print_summary(results,scantype):
     total = len(results)
@@ -18,7 +36,7 @@ def print_summary(results,scantype):
     print(f"\n {scantype} scan summary: ")
     print(f"-Total hosts scanned: {total}")
     print(f"-Hosts active: {active_hosts}")
-    print(f"-Hosts down: {down_hosts}")
+    print(f"-Hosts inactive: {down_hosts}")
 
 def save_results_csv(results, filename):
     with open(filename, mode="w", newline="") as f:
