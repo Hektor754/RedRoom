@@ -22,14 +22,15 @@ def print_icmp_result(hostname, ip, status):
     }
     print(f"{hostname:<20}{ip:<20}{colored(status, status_colors.get(status, 'white'))}")
 
-def icmp_scan(target_ip, timeout, retries, filename, ftype, max_workers=50):
+def icmp_scan(target_ip, timeout, retries, filename, ftype, silent, max_workers=50):
     try:
         network = ip_network(target_ip, strict=False)
     except ValueError:
         print(f"[!] Invalid IP or network range: '{target_ip}'")
         return []
 
-    print_icmp_banner()
+    if not silent:
+        print_icmp_banner()
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         results = executor.map(lambda ip: ping_ip(ip, timeout, retries), network.hosts())
@@ -38,7 +39,8 @@ def icmp_scan(target_ip, timeout, retries, filename, ftype, max_workers=50):
 
     for hostname, ip, active in results:
         status = "ACTIVE" if active else "INACTIVE"
-        print_icmp_result(hostname, ip, status)
+        if not silent:
+            print_icmp_result(hostname, ip, status)
         active_ips.append({
             "hostname": hostname,
             "ip": ip,
