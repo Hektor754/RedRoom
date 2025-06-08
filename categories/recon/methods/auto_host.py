@@ -1,5 +1,7 @@
 import ipaddress
-from methods import arp_scan, icmp_scan, tcp_scan
+from .arp_scan import arp_scan
+from .icmp_scan import icmp_scan
+from .tcp_scan import tcp_scan
 
 def is_local_network(target_range):
     try:
@@ -10,30 +12,30 @@ def is_local_network(target_range):
 
     return network.network_address.is_private
 
-def auto_hostdiscovery(target_ip, timeout=1.0, retries=1, filename=None, ftype=None, extra_tcp_flags=None):
+def auto_hostdiscovery(target_ip, timeout, retries, filename, ftype, silent, extra_tcp_flags):
     results = []
     if is_local_network(target_ip):
         print("[*] Local network detected, using ARP scan...")
         try:
-            results = arp_scan(target_ip, timeout, retries, filename, ftype, max_workers=50)
+            results = arp_scan(target_ip, timeout, retries, filename, ftype, silent, max_workers=50)
             
             if not any(r['status'] == 'ACTIVE' for r in results):
                 print("[!] No active hosts found with ARP, falling back to ICMP scan...")
-                results = icmp_scan(target_ip, timeout, retries, filename, ftype)
+                results = icmp_scan(target_ip, timeout, retries, filename, ftype, silent)
                 
         except Exception as e:
             print(f"[!] ARP scan error: {e}, falling back to ICMP scan...")
-            results = icmp_scan(target_ip, timeout, retries, filename, ftype)
+            results = icmp_scan(target_ip, timeout, retries, filename, ftype, silent)
     else:
         print("[*] Remote network detected, using ICMP scan...")
         try:
-            results = icmp_scan(target_ip, timeout, retries, filename, ftype)
+            results = icmp_scan(target_ip, timeout, retries, filename, ftype, silent)
             if not any(r['status'] == 'ACTIVE' for r in results):
                 print("[!] No active hosts found with ICMP, trying TCP scan...")
-                results = tcp_scan(target_ip, extra_tcp_flags, timeout, retries, filename, ftype)
+                results = tcp_scan(target_ip, extra_tcp_flags, timeout, retries, filename, ftype, silent)
         except Exception as e:
             print(f"[!] ICMP scan error: {e}, trying TCP scan...")
-            results = tcp_scan(target_ip, extra_tcp_flags, timeout, retries, filename, ftype)
+            results = tcp_scan(target_ip, extra_tcp_flags, timeout, retries, filename, ftype, silent)
 
     active_hosts = [host for host in results if host["status"] == "ACTIVE"]
 
