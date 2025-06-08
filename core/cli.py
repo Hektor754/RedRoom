@@ -62,6 +62,12 @@ def parse_args():
         type=str,
         default=None,
         help='format to save results on a file'
+    )
+
+    parser.add_argument(
+        '--silent',
+        action='store_true',
+        help='handles the verbose'
     )    
 
     args, unknown = parser.parse_known_args()
