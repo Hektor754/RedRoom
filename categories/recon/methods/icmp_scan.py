@@ -57,7 +57,7 @@ def ping_ip(ip, timeout, retries):
         hostname = "Unknown"
 
         for attempt in range(retries):
-            resp = sr1(pkt, timeout, verbose=0)
+            resp = sr1(pkt, timeout=timeout, verbose=0)
             if resp:
                 hostname = resolve_hostname(ip)
                 return (hostname, str(ip), True)
