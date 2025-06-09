@@ -11,22 +11,30 @@ import platform
 import re
 
 def print_hostprofile_results(results):
-    print("\n" + "-" * 90)
-    print(f"{'Hostname':<20}{'IP Address':<18}{'MAC Address':<20}{'Vendor':<30}{'Status':<10}")
-    print("-" * 90)
-
-    for host in results:
-        hostname = host.get("hostname", "Unknown")
-        ip = host.get("ip", "Unknown")
-        mac = host.get("mac", "Unknown")
-        vendor = host.get("vendor", "Unknown")
-        status = host.get("status", "INACTIVE")
-
+    print("\n" + "=" * 60)
+    for i, host in enumerate(results, 1):
+        print(f"Host #{i}")
+        print("-" * 60)
+        print(f"Hostname : {host.get('hostname', 'Unknown')}")
+        print(f"IP       : {host.get('ip', 'Unknown')}")
+        print(f"MAC      : {host.get('mac', 'Unknown')}")
+        print(f"Vendor   : {host.get('vendor', 'Unknown')}")
+        status = host.get('status', 'INACTIVE').upper()
         status_colored = colored(status, "green" if status == "ACTIVE" else "red")
+        print(f"Status   : {status_colored}")
 
-        print(f"{hostname:<20}{ip:<18}{mac:<20}{vendor:<30}{status_colored:<10}")
+        # Ports and services: print as aligned list
+        ports = host.get('ports', [])
+        services = host.get('services', [])
 
-    print("-" * 90)
+        if ports:
+            print("Ports    :")
+            for p, s in zip(ports, services):
+                print(f"  - {p:<5} {s}")
+        else:
+            print("Ports    : None detected")
+
+        print("=" * 60)
 
 def print_summary(results,scantype):
     total = len(results)
