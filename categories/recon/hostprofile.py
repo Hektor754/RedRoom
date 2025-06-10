@@ -3,6 +3,7 @@ from .methods.auto_host import auto_hostdiscovery
 from .methods.vendor_lookup import load_oui, lookup_vendor
 from utils import print_hostprofile_results
 from .methods.port_service_guess import quick_tcp_scan
+from .methods.os_detection import OSDetector
 
 class TCPFlags:
     def __init__(self, ports=None, stealth=False):
@@ -41,4 +42,12 @@ def run(args):
         ports, services = quick_tcp_scan(host["ip"],common_ports, args.timeout)
         host["ports"] = ports
         host["services"] = services
+        os_detector = OSDetector()
+        os_result = os_detector.run(host["ip"])
+        best_guess_os = os_result['common_matches'][0] if os_result['common_matches'] else os_result['window_result'][2][0]
+
+        host["os_guess"] = best_guess_os
+        host["confidence"] = os_result['overall_confidence']
+
+
     print_hostprofile_results(active_hosts)
