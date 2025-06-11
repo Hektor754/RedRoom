@@ -1,5 +1,5 @@
 from .methods.arp_scan import arp_scan
-from .methods.tcp_scan import parse_tcp_flags, tcp_scan
+from .methods.tcp_scan import Handler
 from .methods.icmp_scan import icmp_scan
 import ipaddress
 
@@ -29,9 +29,9 @@ def run(args):
         except Exception as e:
             print(f"[!] Unexpected error during ARP scan: {e}")
     elif method == "tcp":
-        tcp_flags = parse_tcp_flags(args.extra)
+        tcp_flags = Handler.parse_tcp_flags(args.extra)
         try:
-            results = tcp_scan(args.range, tcp_flags, args.timeout, args.retries, args.output, args.format, args.silent)
+            results = Handler.tcp_scan(args.range, tcp_flags, args.timeout, args.retries, args.output, args.format, args.silent)
         except Exception as e:
             print(f"[!] Unexpected error during TCP scan: {e}")
     elif method == "icmp":
