@@ -1,4 +1,5 @@
 from termcolor import colored
+from colorama import Fore,Style
 import csv
 import json
 import os
@@ -13,28 +14,47 @@ import re
 def print_hostprofile_results(results):
     print("\n" + "=" * 60)
     for i, host in enumerate(results, 1):
-        print(f"Host #{i}")
+        print(f"{Fore.CYAN}Host #{i}{Style.RESET_ALL}")
         print("-" * 60)
-        print(f"Hostname    : {host.get('hostname', 'Unknown')}")
-        print(f"IP          : {host.get('ip', 'Unknown')}")
-        print(f"MAC         : {host.get('mac', 'Unknown')}")
-        print(f"Vendor      : {host.get('vendor', 'Unknown')}")
-        print(f"OS          : {host.get('os_guess', 'Unknown')}")
-        print(f"Confidence  : {host.get('confidence', '------')}")
-        status = host.get('status', 'INACTIVE').upper()
-        status_colored = colored(status, "green" if status == "ACTIVE" else "red")
-        print(f"Status   : {status_colored}")
 
-        # Ports and services: print as aligned list
+        print(f"{Fore.YELLOW}Hostname{Style.RESET_ALL}    : {host.get('hostname', 'Unknown')}")
+        print(f"{Fore.YELLOW}IP{Style.RESET_ALL}          : {host.get('ip', 'Unknown')}")
+        print(f"{Fore.YELLOW}MAC{Style.RESET_ALL}         : {host.get('mac', 'Unknown')}")
+        print(f"{Fore.YELLOW}Vendor{Style.RESET_ALL}      : {host.get('vendor', 'Unknown')}")
+
+        os_data = host.get('os_data', {})
+        primary_guess = os_data.get('primary_guess', 'Unknown')
+        confidence = os_data.get('confidence', 'unknown').lower()
+
+        if confidence == "high":
+            confidence_color = Fore.GREEN
+        elif confidence == "medium":
+            confidence_color = Fore.YELLOW
+        else:
+            confidence_color = Fore.RED
+
+        print(f"{Fore.YELLOW}OS{Style.RESET_ALL}          : {primary_guess}")
+        print(f"{Fore.YELLOW}Confidence{Style.RESET_ALL}  : {confidence_color}{confidence.upper()}{Style.RESET_ALL}")
+
+        if os_data.get('alternatives'):
+            print(f"{Fore.YELLOW}Also Possible{Style.RESET_ALL}: {', '.join(os_data['alternatives'])}")
+
+        if os_data.get('window_size') and os_data.get('ttl'):
+            print(f"{Fore.YELLOW}Detection{Style.RESET_ALL}   : Window={os_data['window_size']}, TTL={os_data['ttl']}")
+
+        status = host.get('status', 'INACTIVE').upper()
+        status_color = Fore.GREEN if status == "ACTIVE" else Fore.RED
+        print(f"{Fore.YELLOW}Status{Style.RESET_ALL}      : {status_color}{status}{Style.RESET_ALL}")
+
         ports = host.get('ports', [])
         services = host.get('services', [])
 
         if ports:
-            print("Ports    :")
-            for p, s in zip(ports, services):
-                print(f"  - {p:<5} {s}")
+            print(f"{Fore.YELLOW}Open Ports{Style.RESET_ALL}:")
+            for port, service in zip(ports, services):
+                print(f"  {Fore.BLUE}{port:<5}{Style.RESET_ALL} {service}")
         else:
-            print("Ports    : None detected")
+            print(f"{Fore.YELLOW}Open Ports{Style.RESET_ALL}: None detected")
 
         print("=" * 60)
 
