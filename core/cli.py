@@ -44,7 +44,7 @@ def parse_args():
     parser.add_argument(
         '--retries',
         type=int,
-        default=1,
+        default=2,
         required=False,
         help='Number of retries if no response (default: 1)'
     )
