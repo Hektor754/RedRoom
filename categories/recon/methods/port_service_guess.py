@@ -76,7 +76,7 @@ COMMON_PORTS = {
 }
 
 
-def quick_tcp_scan(ip, ports, timeout=1.0, max_workers=50):
+def quick_tcp_scan(ip, ports, timeout=3.0, max_workers=50):
     open_ports = []
     services = []
 
