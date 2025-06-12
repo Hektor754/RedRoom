@@ -36,7 +36,7 @@ def parse_args():
     parser.add_argument(
         '--timeout',
         type=float,
-        default=1.0,
+        default=2.0,
         required=False,
         help='Timeout in seconds to wait for each probe (default: 1.0)'
     )
@@ -68,7 +68,7 @@ def parse_args():
         '--silent',
         action='store_true',
         help='handles the verbose'
-    )    
+    )
 
     args, unknown = parser.parse_known_args()
     args.extra = unknown
