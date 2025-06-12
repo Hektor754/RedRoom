@@ -1,0 +1,5 @@
+-enrich the tcp_scan
+
+-restructure the arp_scan, icmp_scan, udp_scan to exclude the silent argument
+
+-remove the parse --silent as an argument from cli
