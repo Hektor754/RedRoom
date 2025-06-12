@@ -40,13 +40,13 @@ def auto_hostdiscovery(target_ip, timeout, retries, filename, ftype, silent, ext
             results = icmp_scan(target_ip, timeout, retries, filename, ftype, silent)
             if not any(r['status'] == 'ACTIVE' for r in results):
                 print("[!] No active hosts found with ICMP, trying TCP scan...")
-                results = Handler.tcp_scan(target_ip, extra_tcp_flags, timeout, retries, filename, ftype, silent)
+                results = Handler.tcp_scan(target_ip, extra_tcp_flags, timeout, retries, filename, ftype)
                 if not any(r['status'] == 'ACTIVE' for r in results):
                     print("[!] No active hosts found with TCP, trying UDP scan...")
                     results = udp_scan(target_ip, timeout, retries, filename, ftype, silent)
         except Exception as e:
             print(f"[!] ICMP scan error: {e}, trying TCP scan...")
-            results = Handler.tcp_scan(target_ip, extra_tcp_flags, timeout, retries, filename, ftype, silent)
+            results = Handler.tcp_scan(target_ip, extra_tcp_flags, timeout, retries, filename, ftype)
             if not any(r['status'] == 'ACTIVE' for r in results):
                 print("[!] No active hosts found with TCP, trying UDP scan...")
                 results = udp_scan(target_ip, timeout, retries, filename, ftype, silent)
