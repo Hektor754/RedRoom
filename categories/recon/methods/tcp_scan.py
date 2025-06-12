@@ -22,6 +22,7 @@ class Handler:
         parser = argparse.ArgumentParser()
         parser.add_argument('--stealth', '-s', action='store_true', help='Perform stealth (SYN) scan')
         parser.add_argument('--port', '-p', type=str, default=None, help='Comma-separated list of ports (e.g., 80,443)')
+        parser.add_argument('--fin', '-f', action='store_true', help='Perform FIN scan')
         args, unknown = parser.parse_known_args(extra_args)
         if unknown:
             print(f"[!] Warning: Unknown TCP scan options ignored: {unknown}")
@@ -59,6 +60,8 @@ class Handler:
             scan_func = SCAN_METHODS["stealth"]
         elif caller_filename == "auto_host.py":
             scan_func = SCAN_METHODS["hostname"]
+        elif tcp_flags.fin:
+            scan_func = SCAN_METHODS["FIN"]
         else:
             scan_func = SCAN_METHODS["connect"]
 
@@ -67,13 +70,20 @@ class Handler:
 
 class Output:
     @staticmethod
-    def print_banner(stealth):
-        scan_type = "STEALTH (SYN)" if stealth else "CONNECT"
-        print(f"\n{'-'*40}")
-        print(colored(f"[+] Starting TCP {scan_type} host discovery scan", "cyan"))
-        print(f"{'-'*40}")
-        print(f"{'Host':<20}{'Status':<10}")
-        print(f"{'-'*40}")
+    def print_banner(scan_type):
+        if scan_type == "stealth" or scan_type == "connect":
+            print(f"\n{'-'*40}")
+            print(colored(f"[+] Starting TCP {scan_type} host discovery scan", "cyan"))
+            print(f"{'-'*40}")
+            print(f"{'Host':<20}{'Status':<10}")
+            print(f"{'-'*40}")
+        else:
+            print(f"\n{'-'*40}")
+            print(colored(f"[+] Starting TCP {scan_type} host discovery scan", "cyan"))
+            print(f"{'-'*40}")
+            print(f"{'Host':<20}{'Port':<10}")
+            print(f"{'-'*40}")
+
 
     @staticmethod
     def print_host_result(ip, status):
@@ -83,23 +93,28 @@ class Output:
         }
         print(f"{str(ip):<20}{colored(status, status_colors.get(status, 'white'))}")
 
+    @staticmethod
+    def print_FIN_host_result(ip, ports):
+        ports_str = ", ".join(map(str, ports)) if ports else "-"
+        print(f"{str(ip):<20}{colored(ports_str,'white')}")
+
 
 class Utilities:
     @staticmethod
     def randomize_sport():
-        return random.randint(1024, 65535)
+        return random.randint(49152, 65535)
 
     @staticmethod
     def randomize_seq():
-        return random.randint(0, 4294967295)
+        return random.getrandbits(32)
 
     @staticmethod
     def randomize_window():
-        return random.choice([8192, 16384, 65535, 29200])
+        return random.choice([5840, 8192, 16384, 65535, 14600, 32120, 29200])
 
     @staticmethod
     def randomize_ttl():
-        return random.choice([32, 64, 128, 255])
+        return random.choice([64, 128, 255])
 
     @staticmethod
     def randomize_time(scan_method):
@@ -114,7 +129,7 @@ class TCPConnectScan:
     @staticmethod
     def scan(network, ports, timeout, retries, filename, ftype, max_workers=MAX_WORKERS):
         active_hosts = []
-        Output.print_banner(stealth=False)
+        Output.print_banner(scan_type="connect")
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             results = executor.map(lambda ip: TCPConnectScan._connect_ip_host(ip, ports, timeout, retries), network.hosts())
@@ -132,7 +147,6 @@ class TCPConnectScan:
 
     @staticmethod
     def _connect_ip_host(ip, ports, timeout, retries):
-        scan = "connect"
         for port in ports:
             try:
                 for _ in range(retries):
@@ -156,7 +170,7 @@ class TCPConnectScan:
                             send(rst_packet, verbose=0)
 
                             return (str(ip), True)
-                    delay = Utilities.randomize_time(scan)
+                    delay = Utilities.randomize_time("connect")
                     time.sleep(delay)
             except Exception as e:
                 print(f"[!] Error scanning {ip}:{port} - {e}")
@@ -167,7 +181,7 @@ class TCPStealthScan:
     @staticmethod
     def scan(network, ports, timeout, retries, filename, ftype, max_workers=MAX_WORKERS):
         active_hosts = []
-        Output.print_banner(stealth=True)
+        Output.print_banner(scan_type="stealth")
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             results = executor.map(lambda ip: TCPStealthScan._stealth_scan_ip(ip, ports, timeout, retries), network.hosts())
@@ -185,7 +199,6 @@ class TCPStealthScan:
 
     @staticmethod
     def _stealth_scan_ip(ip, ports, timeout, retries):
-        scan = "stealth"
         for port in ports:
             try:
                 for _ in range(retries):
@@ -203,11 +216,59 @@ class TCPStealthScan:
                             rst_packet = IP(dst=str(ip), ttl=ttl_value) / TCP(sport=src_port, dport=port, flags='R', seq=seq_num + 1, window=window_size)
                             send(rst_packet, verbose=0)
                             return (str(ip), True)
-                    delay = Utilities.randomize_time(scan)
+                    delay = Utilities.randomize_time("stealth")
                     time.sleep(delay)
             except Exception as e:
                 print(f"[!] Error scanning {ip}:{port} - {e}")
         return (str(ip), False)
+    
+class TCPFINScan:
+    @staticmethod
+    def scan(network, ports, timeout, retries, filename, ftype, max_workers=MAX_WORKERS):
+        active_hosts = []
+        Output.print_banner(scan_type="FIN")
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            results = executor.map(lambda ip: TCPFINScan._FIN_scan_ip(ip, ports, timeout, retries), network.hosts())
+
+        for ip, ports in results:
+            Output.print_FIN_host_result(ip, ports)
+            active_hosts.append({
+                "ip": ip,
+                "ports": ports
+            })
+        
+        return active_hosts
+    
+    @staticmethod
+    def _FIN_scan_ip(ip, ports, timeout, retries):
+        open_ports = []
+
+        for port in ports:
+            try:
+                for _ in range(retries):
+                    src_port = Utilities.randomize_sport()
+                    seq_num = Utilities.randomize_seq()
+                    window_size = Utilities.randomize_window()
+                    ttl_value = Utilities.randomize_ttl()
+
+                    fin_packet = IP(dst=str(ip), ttl=ttl_value) / TCP(sport=src_port,dport=port, flags="F", seq=seq_num, window=window_size)
+                    response = sr1(fin_packet, timeout=timeout, verbose=0)
+
+                    if response is None:
+                        open_ports.append(port)
+
+                    if response and response.haslayer(TCP):
+                        if response.getlayer(TCP).flags == 0x14:
+                            continue
+                    
+                    delay = Utilities.randomize_time("FIN")
+                    time.sleep(delay)
+            except Exception as e:
+                print(f"[!] Error scanning {ip}:{port} - {e}")
+
+        return (str(ip), open_ports)
+
     
 class TCPHostname:
     @staticmethod
@@ -269,5 +330,6 @@ class TCPHostname:
 SCAN_METHODS = {
     "connect": TCPConnectScan.scan,
     "stealth": TCPStealthScan.scan,
-    "hostname": TCPHostname.scan
+    "hostname": TCPHostname.scan,
+    "FIN": TCPFINScan.scan
 }
