@@ -1,8 +1,8 @@
 import ipaddress
-from .arp_scan import arp_scan
-from .icmp_scan import icmp_scan
+from .arp_scan import ARPScan
+from .icmp_scan import ICMPScan
 from .tcp_scan import Handler
-from .udp_scan import udp_scan
+from .udp_scan import UDPScan
 
 def is_local_network(target_range):
     try:
@@ -17,39 +17,39 @@ def auto_hostdiscovery(target_ip, timeout, retries, filename, ftype, silent, ext
     if is_local_network(target_ip):
         print("[*] Local network detected, using ARP scan...")
         try:
-            results = arp_scan(target_ip, timeout, retries, filename, ftype, silent, max_workers=50)
+            results = ARPScan.arp_scan(target_ip, timeout, retries, filename, ftype, silent, max_workers=50)
             
             if not any(r['status'] == 'ACTIVE' for r in results):
                 print("[!] No active hosts found with ARP, falling back to ICMP scan...")
-                results = icmp_scan(target_ip, timeout, retries, filename, ftype, silent)
+                results = ICMPScan.icmp_scan(target_ip, timeout, retries, filename, ftype, silent)
 
                 if not any(r['status'] == 'ACTIVE' for r in results):
                     print("[!] No active hosts found with ICMP, trying UDP scan...")
-                    results = udp_scan(target_ip, timeout, retries, filename, ftype, silent)
+                    results = UDPScan.udp_scan(target_ip, timeout, retries, filename, ftype, silent)
                 
         except Exception as e:
             print(f"[!] ARP scan error: {e}, falling back to ICMP scan...")
-            results = icmp_scan(target_ip, timeout, retries, filename, ftype, silent)
+            results = ICMPScan.icmp_scan(target_ip, timeout, retries, filename, ftype, silent)
             if not any(r['status'] == 'ACTIVE' for r in results):
                 print("[!] No active hosts found with ICMP, trying UDP scan...")
-                results = udp_scan(target_ip, timeout, retries, filename, ftype, silent)
+                results = UDPScan.udp_scan(target_ip, timeout, retries, filename, ftype, silent)
 
     else:
         print("[*] Remote network detected, using ICMP scan...")
         try:
-            results = icmp_scan(target_ip, timeout, retries, filename, ftype, silent)
+            results = ICMPScan.icmp_scan(target_ip, timeout, retries, filename, ftype, silent)
             if not any(r['status'] == 'ACTIVE' for r in results):
                 print("[!] No active hosts found with ICMP, trying TCP scan...")
                 results = Handler.tcp_scan(target_ip, extra_tcp_flags, timeout, retries, filename, ftype)
                 if not any(r['status'] == 'ACTIVE' for r in results):
                     print("[!] No active hosts found with TCP, trying UDP scan...")
-                    results = udp_scan(target_ip, timeout, retries, filename, ftype, silent)
+                    results = UDPScan.udp_scan(target_ip, timeout, retries, filename, ftype, silent)
         except Exception as e:
             print(f"[!] ICMP scan error: {e}, trying TCP scan...")
             results = Handler.tcp_scan(target_ip, extra_tcp_flags, timeout, retries, filename, ftype)
             if not any(r['status'] == 'ACTIVE' for r in results):
                 print("[!] No active hosts found with TCP, trying UDP scan...")
-                results = udp_scan(target_ip, timeout, retries, filename, ftype, silent)
+                results = UDPScan.udp_scan(target_ip, timeout, retries, filename, ftype, silent)
 
     active_hosts = [host for host in results if host["status"] == "ACTIVE"]
     return active_hosts
