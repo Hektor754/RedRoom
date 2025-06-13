@@ -4,11 +4,7 @@ from .methods.vendor_lookup import load_oui, lookup_vendor
 from utils import print_hostprofile_results
 from .methods.port_service_guess import quick_tcp_scan
 from .methods.os_detection import OSDetector
-
-class TCPFlags:
-    def __init__(self, ports=None, stealth=False):
-        self.port = ports
-        self.stealth = stealth
+from argparse import Namespace
 
 common_ports = [
     20, 21, 22, 23, 25, 53, 67, 68, 69, 80, 110, 111, 119, 123, 135, 137, 138, 
@@ -23,7 +19,12 @@ efficient_ports = [
     3389, 1433, 5432
 ]
 
-extra_tcp_flags = TCPFlags(ports=efficient_ports, stealth=False)
+extra_tcp_flags = Namespace(
+    port=efficient_ports,
+    stealth=False,
+    fin=False,
+    ack=False
+)
 
 def validate_ip_range(ip_range):
     try:
