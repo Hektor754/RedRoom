@@ -1,4 +1,4 @@
-from scapy.all import IP, TCP, send, sr1
+from scapy.all import IP, TCP, ICMP, send, sr1
 from termcolor import colored
 from colorama import init
 from concurrent.futures import ThreadPoolExecutor
@@ -14,15 +14,19 @@ import inspect
 init()
 MAX_WORKERS = 50
 COMMON_PORTS = [21, 22, 23, 25, 53, 80, 110, 135, 139, 443]
+FIN_PORTS = list(range(1, 1025)) + [8080, 8443, 3306, 3389, 5900, 6667, 7000]
+
 
 
 class Handler:
+
     @staticmethod
     def parse_tcp_flags(extra_args):
         parser = argparse.ArgumentParser()
         parser.add_argument('--stealth', '-s', action='store_true', help='Perform stealth (SYN) scan')
-        parser.add_argument('--port', '-p', type=str, default=None, help='Comma-separated list of ports (e.g., 80,443)')
+        parser.add_argument('--port', '-p', type=str, default=COMMON_PORTS, help='Comma-separated list of ports (e.g., 80,443)')
         parser.add_argument('--fin', '-f', action='store_true', help='Perform FIN scan')
+        parser.add_argument('--ack', '-a', action='store_true', help='Perform ACK scan')
         args, unknown = parser.parse_known_args(extra_args)
         if unknown:
             print(f"[!] Warning: Unknown TCP scan options ignored: {unknown}")
@@ -43,7 +47,7 @@ class Handler:
         return args
 
     @staticmethod
-    def tcp_scan(ip_range, tcp_flags, timeout=3, retries=1, filename=None, ftype=None, max_workers=MAX_WORKERS):
+    def tcp_scan(ip_range, tcp_flags, timeout=2, retries=1, filename=None, ftype=None, max_workers=MAX_WORKERS):
         try:
             network = ipaddress.ip_network(ip_range, strict=False)
         except ValueError:
@@ -54,7 +58,10 @@ class Handler:
 
         caller_filename = os.path.basename(caller_frame.filename)
 
-        ports = tcp_flags.port if tcp_flags.port else COMMON_PORTS
+        if tcp_flags.fin or tcp_flags.ack:
+            ports = tcp_flags.port if tcp_flags.port else FIN_PORTS
+        else:
+            ports = tcp_flags.port if tcp_flags.port else COMMON_PORTS
 
         if tcp_flags.stealth:
             scan_func = SCAN_METHODS["stealth"]
@@ -62,6 +69,8 @@ class Handler:
             scan_func = SCAN_METHODS["hostname"]
         elif tcp_flags.fin:
             scan_func = SCAN_METHODS["FIN"]
+        elif tcp_flags.ack:
+            scan_func = SCAN_METHODS["ACK"]
         else:
             scan_func = SCAN_METHODS["connect"]
 
@@ -69,6 +78,7 @@ class Handler:
 
 
 class Output:
+
     @staticmethod
     def print_banner(scan_type):
         if scan_type == "stealth" or scan_type == "connect":
@@ -77,7 +87,14 @@ class Output:
             print(f"{'-'*40}")
             print(f"{'Host':<20}{'Status':<10}")
             print(f"{'-'*40}")
+        elif scan_type == "ACK":
+            print(f"\n{'-'*60}")
+            print(colored(f"[+] Starting TCP {scan_type} host discovery scan", "cyan"))
+            print(f"{'-'*60}")
+            print(f"{'Host':<20}{'Ports probably filtered by firewall':<10}")
+            print(f"{'-'*60}")            
         else:
+            print("[!] If the target OS is Windows results are not trustworthy.")
             print(f"\n{'-'*40}")
             print(colored(f"[+] Starting TCP {scan_type} host discovery scan", "cyan"))
             print(f"{'-'*40}")
@@ -98,8 +115,14 @@ class Output:
         ports_str = ", ".join(map(str, ports)) if ports else "-"
         print(f"{str(ip):<20}{colored(ports_str,'white')}")
 
+    @staticmethod
+    def print_ACK_host_result(ip, ports):
+        ports_str = ", ".join(map(str, ports)) if ports else "-"
+        print(f"{str(ip):<20}{colored(ports_str,'white')}")      
+
 
 class Utilities:
+
     @staticmethod
     def randomize_sport():
         return random.randint(49152, 65535)
@@ -126,6 +149,7 @@ class Utilities:
 
 
 class TCPConnectScan:
+
     @staticmethod
     def scan(network, ports, timeout, retries, filename, ftype, max_workers=MAX_WORKERS):
         active_hosts = []
@@ -178,6 +202,7 @@ class TCPConnectScan:
 
 
 class TCPStealthScan:
+
     @staticmethod
     def scan(network, ports, timeout, retries, filename, ftype, max_workers=MAX_WORKERS):
         active_hosts = []
@@ -223,6 +248,7 @@ class TCPStealthScan:
         return (str(ip), False)
     
 class TCPFINScan:
+
     @staticmethod
     def scan(network, ports, timeout, retries, filename, ftype, max_workers=MAX_WORKERS):
         active_hosts = []
@@ -267,10 +293,64 @@ class TCPFINScan:
             except Exception as e:
                 print(f"[!] Error scanning {ip}:{port} - {e}")
 
-        return (str(ip), open_ports)
+        return (str(ip), list(set(open_ports)))
 
+class TCPACKScan:
+
+    @staticmethod
+    def scan(network, ports, timeout, retries, filename, ftype, max_workers=MAX_WORKERS):   
+        active_hosts = []
+        Output.print_banner(scan_type="ACK")
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            results = executor.map(lambda ip: TCPACKScan._ACK_scan_ip(ip, ports, timeout, retries), network.hosts())
+
+        for ip, ports in results:
+            Output.print_ACK_host_result(ip, ports)
+            active_hosts.append({
+                "ip": ip,
+                "ports": ports
+            })
+        
+        return active_hosts
+
+    @staticmethod
+    def _ACK_scan_ip(ip, ports, timeout, retries):
+        filtered_ports = []
+
+        for port in ports:
+            try:
+                for _ in range(retries):
+                    src_port = Utilities.randomize_sport()
+                    seq_num = Utilities.randomize_seq()
+                    window_size = Utilities.randomize_window()
+                    ttl_value = Utilities.randomize_ttl()
+
+                    fin_packet = IP(dst=str(ip), ttl=ttl_value) / TCP(sport=src_port,dport=port, flags="A", seq=seq_num, window=window_size)
+                    response = sr1(fin_packet, timeout=timeout, verbose=0)
+                    
+                    if response is None:
+                        filtered_ports.append(port)
+
+                    elif response.haslayer(ICMP):
+                        icmp = response.getlayer(ICMP)
+                        if icmp.type == 3 and icmp.code in [1, 2, 3, 9, 10, 13]:
+                            filtered_ports.append(port)
+
+                    if response and response.haslayer(TCP):
+                        if response.getlayer(TCP).flags == 0x04:
+                            continue
+                            
+                    
+                    delay = Utilities.randomize_time("FIN")
+                    time.sleep(delay)
+            except Exception as e:
+                print(f"[!] Error scanning {ip}:{port} - {e}")
+
+        return (str(ip), list(set(filtered_ports)))
     
 class TCPHostname:
+
     @staticmethod
     def scan(network, ports, timeout, retries, filename, ftype, max_workers=MAX_WORKERS):
         active_hosts = []
@@ -331,5 +411,6 @@ SCAN_METHODS = {
     "connect": TCPConnectScan.scan,
     "stealth": TCPStealthScan.scan,
     "hostname": TCPHostname.scan,
-    "FIN": TCPFINScan.scan
+    "FIN": TCPFINScan.scan,
+    "ACK": TCPACKScan.scan
 }
