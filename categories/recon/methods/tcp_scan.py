@@ -111,14 +111,10 @@ class Output:
         print(f"{str(ip):<20}{colored(status, status_colors.get(status, 'white'))}")
 
     @staticmethod
-    def print_FIN_host_result(ip, ports):
+    def print_FIN_ACK_XMAS_host_result(ip, ports):
         ports_str = ", ".join(map(str, ports)) if ports else "-"
         print(f"{str(ip):<20}{colored(ports_str,'white')}")
-
-    @staticmethod
-    def print_ACK_host_result(ip, ports):
-        ports_str = ", ".join(map(str, ports)) if ports else "-"
-        print(f"{str(ip):<20}{colored(ports_str,'white')}")      
+    
 
 
 class Utilities:
@@ -145,6 +141,8 @@ class Utilities:
             return random.uniform(0.3, 1.5)
         elif scan_method == "connect":
             return random.uniform(0.05, 0.2)
+        elif scan_method in ["FIN", "XMAS", "ACK"]:
+            return random.uniform(0.2, 0.5)
         return 0.1
 
 
@@ -246,7 +244,57 @@ class TCPStealthScan:
             except Exception as e:
                 print(f"[!] Error scanning {ip}:{port} - {e}")
         return (str(ip), False)
+
+class TCPXMASScan:
+
+    @staticmethod
+    def scan(network, ports, timeout, retries, filename, ftype, max_workers=MAX_WORKERS):
+        active_hosts = []
+        Output.print_banner(scan_type="XMAS")
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            results = executor.map(lambda ip: TCPXMASScan._XMAS_scan_ip(ip, ports, timeout, retries), network.hosts())
+
+        for ip, ports in results:
+            Output.print_FIN_ACK_XMAS_host_result(ip, ports)
+            active_hosts.append({
+                "ip": ip,
+                "ports": ports
+            })
+        
+        handle_scan_output(active_hosts, scantype="TCP XMAS", filename=filename, ftype=ftype)
+        return active_hosts
     
+    @staticmethod
+    def _XMAS_scan_ip(ip, ports, timeout, retries):
+        open_ports = []
+
+        for port in ports:
+            try:
+                for _ in range(retries):
+                    src_port = Utilities.randomize_sport()
+                    seq_num = Utilities.randomize_seq()
+                    window_size = Utilities.randomize_window()
+                    ttl_value = Utilities.randomize_ttl()
+
+                    xmas_packet = IP(dst=str(ip), ttl=ttl_value) / TCP(sport=src_port,dport=port, flags="FUP", seq=seq_num, window=window_size)
+                    response = sr1(xmas_packet, timeout=timeout, verbose=0)
+
+                    if response is None:
+                        open_ports.append(port)
+
+                    if response and response.haslayer(TCP):
+                        if response.getlayer(TCP).flags == 0x14:
+                            continue
+                    
+                    delay = Utilities.randomize_time("XMAS")
+                    time.sleep(delay)
+            except Exception as e:
+                print(f"[!] Error scanning {ip}:{port} - {e}")
+
+        return (str(ip), list(set(open_ports)))
+
+
 class TCPFINScan:
 
     @staticmethod
@@ -258,12 +306,13 @@ class TCPFINScan:
             results = executor.map(lambda ip: TCPFINScan._FIN_scan_ip(ip, ports, timeout, retries), network.hosts())
 
         for ip, ports in results:
-            Output.print_FIN_host_result(ip, ports)
+            Output.print_FIN_ACK_XMAS_host_result(ip, ports)
             active_hosts.append({
                 "ip": ip,
                 "ports": ports
             })
         
+        handle_scan_output(active_hosts, scantype="TCP FIN", filename=filename, ftype=ftype)
         return active_hosts
     
     @staticmethod
@@ -306,12 +355,13 @@ class TCPACKScan:
             results = executor.map(lambda ip: TCPACKScan._ACK_scan_ip(ip, ports, timeout, retries), network.hosts())
 
         for ip, ports in results:
-            Output.print_ACK_host_result(ip, ports)
+            Output.print_FIN_ACK_XMAS_host_result(ip, ports)
             active_hosts.append({
                 "ip": ip,
                 "ports": ports
             })
         
+        handle_scan_output(active_hosts, scantype="TCP ACK", filename=filename, ftype=ftype)
         return active_hosts
 
     @staticmethod
@@ -366,6 +416,7 @@ class TCPHostname:
                 "status": status
             })
 
+        handle_scan_output(active_hosts, scantype="TCP hostname", filename=filename, ftype=ftype)
         return active_hosts
 
     @staticmethod
@@ -412,5 +463,6 @@ SCAN_METHODS = {
     "stealth": TCPStealthScan.scan,
     "hostname": TCPHostname.scan,
     "FIN": TCPFINScan.scan,
-    "ACK": TCPACKScan.scan
+    "ACK": TCPACKScan.scan,
+    "XMAS": TCPXMASScan.scan
 }
