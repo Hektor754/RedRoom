@@ -1,9 +1,9 @@
 import ipaddress
-from .methods.auto_host import auto_hostdiscovery
-from .methods.vendor_lookup import load_oui, lookup_vendor
+from .methods.digital_fingerprinting.auto_host import auto_hostdiscovery
+from .methods.digital_fingerprinting.vendor_lookup import load_oui, lookup_vendor
 from utils import print_hostprofile_results
-from .methods.port_service_guess import quick_tcp_scan
-from .methods.os_detection import OSDetector
+from .methods.digital_fingerprinting.port_service_guess import quick_tcp_scan
+from .methods.digital_fingerprinting.os_detection import OSDetector
 from argparse import Namespace
 
 common_ports = [
