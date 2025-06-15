@@ -1,6 +1,6 @@
-from .methods.arp_scan import ARPScan
-from .methods.tcp_scan import Handler
-from .methods.icmp_scan import ICMPScan
+from .methods.protocol_scans.arp_scan import ARPScan
+from .methods.protocol_scans.tcp_scan import Handler
+from .methods.protocol_scans.icmp_scan import ICMPScan
 import ipaddress
 
 def run(args):
