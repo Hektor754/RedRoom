@@ -16,7 +16,7 @@ def parse_args():
     parser.add_argument(
         '-t', '--tool',
         required=True,
-        choices=['hostscan','hostprofile'],
+        choices=['hostscan','hostprofile','dnsenum'],
         help='Tool name within category (e.g., hostscan)'
     )
 
@@ -29,8 +29,14 @@ def parse_args():
 
     parser.add_argument(
         '-r','--range',
-        required=True,
+        required=False,
         help='Tool target IP or IP range (CIDR notation supported)'
+    )
+
+    parser.add_argument(
+        '-d','--domain',
+        required=False,
+        help='Tool target domain'
     )
 
     parser.add_argument(
