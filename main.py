@@ -1,12 +1,12 @@
 from core.cli import parse_args
-from categories.recon import hostscan,hostprofile
+from categories.recon import hostscan,hostprofile,dnsenum
 
 
 def main():
     args = parse_args()
 
     valid_categories = {"recon"}
-    valid_tools = {"hostscan","hostprofile"}
+    valid_tools = {"hostscan","hostprofile","dnsenum"}
 
     if args.category not in valid_categories:
         print(f"[!] Error: Invalid category '{args.category}'. Valid options: {', '.join(valid_categories)}")
@@ -25,6 +25,11 @@ def main():
         elif args.tool == "hostprofile":
             try:
                 hostprofile.run(args)
+            except Exception as e:
+                print(f"[!] Unexpected error during scan: {e}")
+        elif args.tool == "dnsenum":
+            try:
+                dnsenum.run(args)
             except Exception as e:
                 print(f"[!] Unexpected error during scan: {e}")
 
