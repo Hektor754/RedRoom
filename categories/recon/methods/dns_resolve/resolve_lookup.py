@@ -1,4 +1,7 @@
 import dns.resolver
+import dns.query
+import dns.zone
+import dns.exception
 import socket
 
 class Lookup:
@@ -9,7 +12,42 @@ class Lookup:
             return [ip.address for ip in dns.resolver.resolve(domain, 'A')]
         except Exception:
             return []
-        
+
+    @staticmethod
+    def forward_lookup_aaaa(domain):
+        try:
+            return [ip.address for ip in dns.resolver.resolve(domain, 'AAAA')]
+        except Exception:
+            return []
+
+    @staticmethod
+    def get_srv_records(domain):
+        try:
+            answers = dns.resolver.resolve(domain, 'SRV')
+            return [(r.priority, r.weight, r.port, r.target.to_text()) for r in answers]
+        except Exception:
+            return []
+
+    @staticmethod
+    def attempt_zone_transfer(domain):
+        results = {}
+        try:
+            ns_records = [ns.to_text() for ns in dns.resolver.resolve(domain, 'NS')]
+        except Exception:
+            return results
+
+        for ns in ns_records:
+            try:
+                zone = dns.zone.from_xfr(dns.query.xfr(ns, domain, timeout=5))
+                if zone is None:
+                    continue
+                results[ns] = []
+                for name, node in zone.nodes.items():
+                    results[ns].append(name.to_text())
+            except dns.exception.DNSException:
+                continue
+        return results
+                    
     @staticmethod
     def get_ns_records(domain):
         try:
