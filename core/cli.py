@@ -6,6 +6,8 @@ def parse_args():
         description='RedRoom: All-in-one Hacking Toolkit'
     )
 
+    group = parser.add_mutually_exclusive_group()
+
     parser.add_argument(
         '-c','--category',
         required=True,
@@ -53,6 +55,18 @@ def parse_args():
         default=2,
         required=False,
         help='Number of retries if no response (default: 1)'
+    )
+
+    group.add_argument(
+        '--min',
+        action='store_true',
+        help='Minimal DNS enumeration (A, AAAA, NS)'
+    )
+
+    group.add_argument(
+        '--full',
+        action='store_true',
+        help='Full DNS enumeration (A, AAAA, MX, NS, CNAME, TXT, SOA, SRV, AXFR)'
     )
 
     parser.add_argument(
