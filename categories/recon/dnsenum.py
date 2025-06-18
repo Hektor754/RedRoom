@@ -1,6 +1,24 @@
 import ipaddress
 from .methods.dns_resolve.resolve_lookup import Lookup
 
+DNS_RECORDS = {
+    'A': (Lookup.forward_lookup, True),
+    'AAAA': (Lookup.forward_lookup_aaaa, True),
+    'NS': (Lookup.get_ns_records, True),
+    'MX': (Lookup.get_mx_records, True),
+    'CNAME': (Lookup.get_cname, False),
+    'TXT': (Lookup.get_txt_records, True),
+    'SOA': (Lookup.get_soa_record, False),
+    'SRV': (Lookup.get_srv_records, True),
+    'AXFR': (Lookup.attempt_zone_transfer, False),
+}
+
+MODES = {
+    'min': ['A', 'AAAA', 'NS'],
+    'average': ['A', 'AAAA', 'MX', 'NS', 'CNAME'],
+    'full': list(DNS_RECORDS.keys()),
+}
+
 def parse_ips(ip_range):
     try:
         net = ipaddress.ip_network(ip_range, strict=False)
@@ -9,48 +27,57 @@ def parse_ips(ip_range):
         return [ip_range]
 
 def run(args):
-    if args.domain:
-        domain = args.domain
-        print(f"[+] A Records (Forward lookup) for {domain}")
-        ips = Lookup.forward_lookup(domain)
-        for ip in ips:
-            print(f"  - {ip}")
+    if not args.domain:
+        print("[!] Error: No domain specified")
+        return
 
-        print(f"\n[+] CNAME Record")
-        cname = Lookup.get_cname(domain)
-        print(f"  - {cname}" if cname else "  - None")
+    domain = args.domain
 
-        print(f"\n[+] NS Records")
-        for ns in Lookup.get_ns_records(domain):
-            print(f"  - {ns}")
+    if args.min:
+        records_to_query = MODES['min']
+    elif args.full:
+        records_to_query = MODES['full']
+    else:
+        records_to_query = MODES['average']
 
-        print(f"\n[+] MX Records")
-        for mx in Lookup.get_mx_records(domain):
-            print(f"  - {mx[1]} (priority {mx[0]})")
+    for record in records_to_query:
+        lookup_func, is_list = DNS_RECORDS[record]
+        print(f"\n[+] {record} Record(s) for {domain}")
 
-        print(f"\n[+] TXT Records")
-        for txt in Lookup.get_txt_records(domain):
-            print(f"  - {txt}")
+        results = lookup_func(domain)
 
-        print(f"\n[+] SOA Record")
-        soa = Lookup.get_soa_record(domain)
-        if soa:
-            print(f"  - MNAME: {soa['mname']}")
-            print(f"  - RNAME: {soa['rname']}")
-            print(f"  - Serial: {soa['serial']}")
-        else:
+        if record == 'AXFR':
+            if results:
+                for ns, recs in results.items():
+                    print(f"  - Zone transfer successful from {ns}:")
+                    for r in recs:
+                        print(f"    - {r}")
+            else:
+                print("  - Zone transfer unsuccessful or denied")
+            continue
+
+        if not results:
             print("  - None")
+            continue
 
+        if is_list:
+            if record == 'MX':
+                for pref, exch in results:
+                    print(f"  - {exch} (priority {pref})")
+            else:
+                for item in results:
+                    print(f"  - {item}")
+        else:
+            if record == 'SOA':
+                print(f"  - MNAME: {results.get('mname')}")
+                print(f"  - RNAME: {results.get('rname')}")
+                print(f"  - Serial: {results.get('serial')}")
+            else:
+                print(f"  - {results}")
+
+    if 'A' in records_to_query:
+        ips = Lookup.forward_lookup(domain)
         print(f"\n[+] Reverse Lookup (PTR) for resolved IPs")
         for ip in ips:
             rev = Lookup.reverse_lookup(ip)
             print(f"  - {ip} => {rev if rev else 'N/A'}")
-
-    elif args.range:
-        ips = parse_ips(args.range)
-        print(f"[+] Reverse Lookup (PTR) for IPs in range {args.range}")
-        for ip in ips:
-            rev = Lookup.reverse_lookup(ip)
-            print(f"  - {ip} => {rev if rev else 'N/A'}")
-    else:
-        print("[!] Error: No domain or IP specified for dnsenum. Use -d or -r with a domain name or IP.")
