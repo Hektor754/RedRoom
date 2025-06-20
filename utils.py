@@ -68,6 +68,40 @@ def print_summary(results,scantype):
     print(f"-Hosts active: {active_hosts}")
     print(f"-Hosts inactive: {down_hosts}")
 
+def save_dns_results_json(results, filename):
+    with open(filename, "w") as f:
+        json.dump(results, f, indent=2)
+    print(f"\n[+] DNS results saved to {filename}")
+
+
+def save_dns_results_csv(results, filename):
+    flat_records = []
+
+    for record_type, value in results.items():
+        if isinstance(value, list):
+            for entry in value:
+                flat_records.append({
+                    "record_type": record_type,
+                    "value": str(entry)
+                })
+        elif isinstance(value, dict):
+            flat_records.append({
+                "record_type": record_type,
+                "value": json.dumps(value)
+            })
+        else:
+            flat_records.append({
+                "record_type": record_type,
+                "value": str(value)
+            })
+
+    with open(filename, mode="w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["record_type", "value"])
+        writer.writeheader()
+        writer.writerows(flat_records)
+
+    print(f"\n[+] DNS results saved to {filename}")
+
 def save_results_csv(results, filename):
     with open(filename, mode="w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=["hostname", "ip", "status"])
@@ -81,7 +115,8 @@ def save_results_json(results,filename):
     print(f"\n[+] Results saved to {filename}")
 
 def handle_scan_output(results, scantype, filename=None, ftype=None):
-    print_summary(results, scantype=scantype)
+    if not scantype == "dnsenum":
+        print_summary(results, scantype=scantype)
 
     if ftype and not filename:
         filename = f"scan_output.{ftype}"
@@ -97,9 +132,9 @@ def handle_scan_output(results, scantype, filename=None, ftype=None):
         if ftype not in ("csv", "json"):
             print(f"[!] Unsupported output format: {ftype}")
         elif ftype == "csv":
-            save_results_csv(results, filename)
+            save_dns_results_csv(results, filename)
         elif ftype == "json":
-            save_results_json(results, filename)
+            save_dns_results_json(results, filename)
 
 def resolve_hostname(target_ip):
     if isinstance(target_ip, (ipaddress.IPv4Address, ipaddress.IPv6Address)):
