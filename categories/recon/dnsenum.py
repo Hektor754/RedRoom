@@ -1,5 +1,6 @@
 import ipaddress
 from .methods.dns_resolve.resolve_lookup import Lookup
+from utils import handle_scan_output
 
 DNS_RECORDS = {
     'A': (Lookup.forward_lookup, True),
@@ -40,11 +41,14 @@ def run(args):
     else:
         records_to_query = MODES['average']
 
+    dns_results = {}
+
     for record in records_to_query:
         lookup_func, is_list = DNS_RECORDS[record]
         print(f"\n[+] {record} Record(s) for {domain}")
 
         results = lookup_func(domain)
+        dns_results[record] = results
 
         if record == 'AXFR':
             if results:
@@ -77,7 +81,15 @@ def run(args):
 
     if 'A' in records_to_query:
         ips = Lookup.forward_lookup(domain)
-        print(f"\n[+] Reverse Lookup (PTR) for resolved IPs")
+        ptr_results = {}
         for ip in ips:
             rev = Lookup.reverse_lookup(ip)
+            ptr_results[ip] = rev if rev else "N/A"
             print(f"  - {ip} => {rev if rev else 'N/A'}")
+        dns_results["PTR"] = ptr_results
+
+
+    if args.output:
+        filecreate = args.output
+        scantype = "dnenum"
+        handle_scan_output(results, scantype, filecreate)
