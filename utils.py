@@ -68,13 +68,24 @@ def print_summary(results,scantype):
     print(f"-Hosts active: {active_hosts}")
     print(f"-Hosts inactive: {down_hosts}")
 
+def sanitize_results(results):
+    sanitized = {}
+    for key, val in results.items():
+        if val is None:
+            sanitized[key] = []
+        else:
+            sanitized[key] = val
+    return sanitized
+
 def save_dns_results_json(results, filename):
+    results = sanitize_results(results)
     with open(filename, "w") as f:
         json.dump(results, f, indent=2)
     print(f"\n[+] DNS results saved to {filename}")
 
 
 def save_dns_results_csv(results, filename):
+    results = sanitize_results(results)
     flat_records = []
 
     for record_type, value in results.items():
@@ -115,6 +126,7 @@ def save_results_json(results,filename):
     print(f"\n[+] Results saved to {filename}")
 
 def handle_scan_output(results, scantype, filename=None, ftype=None):
+    results = sanitize_results(results)
     if not scantype == "dnsenum":
         print_summary(results, scantype=scantype)
 
