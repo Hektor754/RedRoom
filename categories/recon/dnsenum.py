@@ -91,5 +91,5 @@ def run(args):
 
     if args.output:
         filecreate = args.output
-        scantype = "dnenum"
-        handle_scan_output(results, scantype, filecreate)
+        scantype = "dnsenum"
+        handle_scan_output(dns_results, scantype, filecreate)
