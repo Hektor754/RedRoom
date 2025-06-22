@@ -126,7 +126,6 @@ def save_results_json(results,filename):
     print(f"\n[+] Results saved to {filename}")
 
 def handle_scan_output(results, scantype, filename=None, ftype=None):
-    results = sanitize_results(results)
     if not scantype == "dnsenum":
         print_summary(results, scantype=scantype)
 
@@ -141,12 +140,23 @@ def handle_scan_output(results, scantype, filename=None, ftype=None):
             ftype = "json"
 
     if filename:
-        if ftype not in ("csv", "json"):
-            print(f"[!] Unsupported output format: {ftype}")
-        elif ftype == "csv":
-            save_dns_results_csv(results, filename)
-        elif ftype == "json":
-            save_dns_results_json(results, filename)
+        if scantype == "dnsenum":
+            results = sanitize_results(results)
+            if ftype not in ("csv", "json"):
+                print(f"[!] Unsupported output format: {ftype}")
+            elif ftype == "csv":
+                save_dns_results_csv(results, filename)
+            elif ftype == "json":
+                save_dns_results_json(results, filename)
+        else:
+            if ftype not in ("csv", "json"):
+                print(f"[!] Unsupported output format: {ftype}")
+            elif ftype == "csv":
+                save_results_csv(results, filename)
+            elif ftype == "json":
+                save_results_json(results, filename)
+            
+        
 
 def resolve_hostname(target_ip):
     if isinstance(target_ip, (ipaddress.IPv4Address, ipaddress.IPv6Address)):
