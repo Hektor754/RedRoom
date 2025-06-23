@@ -46,9 +46,19 @@ def run(args):
     for record in records_to_query:
         lookup_func, is_list = DNS_RECORDS[record]
         print(f"\n[+] {record} Record(s) for {domain}")
+        
+        try:
+            results = lookup_func(domain)
+            dns_results[record] = results
+        except Exception as e:
+            print(f"  [!] Error querying {record} records: {e}")
+            dns_results[record] = None
+            continue
 
-        results = lookup_func(domain)
-        dns_results[record] = results
+        if results is None or (is_list and len(results) == 0):
+            print("  - None")
+            dns_results[record] = None
+            continue
 
         if record == 'AXFR':
             if results:
