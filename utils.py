@@ -119,6 +119,13 @@ def save_results_csv(results, filename):
         writer.writeheader()
         writer.writerows(results)
     print(f"\n[+] results saved to {filename}")
+    
+def save_trrt_results_csv(results, filename):
+    with open(filename, mode="w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["hop", "ip", "latency"])
+        writer.writeheader()
+        writer.writerows(results)
+    print(f"\n[+] results saved to {filename}")
 
 def save_results_json(results,filename):
     with open(filename, "w") as f:
@@ -148,6 +155,13 @@ def handle_scan_output(results, scantype, filename=None, ftype=None):
                 save_dns_results_csv(results, filename)
             elif ftype == "json":
                 save_dns_results_json(results, filename)
+        elif scantype == "traceroute":
+            if ftype not in ("csv", "json"):
+                print(f"[!] Unsupported output format: {ftype}")
+            elif ftype == "csv":
+                save_trrt_results_csv(results, filename)
+            elif ftype == "json":
+                save_results_json(results, filename)            
         else:
             if ftype not in ("csv", "json"):
                 print(f"[!] Unsupported output format: {ftype}")
