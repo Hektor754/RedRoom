@@ -18,7 +18,7 @@ def parse_args():
     parser.add_argument(
         '-t', '--tool',
         required=True,
-        choices=['hostscan','hostprofile','dnsenum'],
+        choices=['hostscan','hostprofile','dnsenum','traceroute'],
         help='Tool name within category (e.g., hostscan)'
     )
 
