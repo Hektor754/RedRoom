@@ -71,6 +71,8 @@ class Handler:
             scan_func = SCAN_METHODS["FIN"]
         elif tcp_flags.ack:
             scan_func = SCAN_METHODS["ACK"]
+        elif tcp_flags.syn:
+            scan_func = SCAN_METHODS["SYNtracert"]
         else:
             scan_func = SCAN_METHODS["connect"]
 
@@ -100,7 +102,20 @@ class Output:
             print(f"{'-'*40}")
             print(f"{'Host':<20}{'Port':<10}")
             print(f"{'-'*40}")
+        
+    @staticmethod
+    def print_SYNtracert_banner():
+        print("\n" + "-" * 60)
+        print(colored("[+] Starting Trace Routing with TCP/SYN probes.", "cyan"))
+        print("-" * 60)
+        print(f"{'Hop':<5}{'IP':<20}{'Latency':<15}")
+        print("-" * 60)
 
+    @staticmethod
+    def print_syn_tracert_result(ttl, ip, rtt):
+        ip_display = ip if ip else "*"
+        rtt_display = f"{rtt:.2f} ms" if rtt else "Timeout"
+        print(f"{ttl:<5}{ip_display:<20}{rtt_display:<15}")
 
     @staticmethod
     def print_host_result(ip, status):
@@ -457,6 +472,58 @@ class TCPHostname:
 
         return (hostname, str(ip), False)
 
+class TCPSYNtraceProbe:
+
+    @staticmethod
+    def scan(network, ports, timeout, retries, filename, ftype, max_workers=MAX_WORKERS):
+        hops = []
+
+        Output.print_SYNtracert_banner(scan_type="SYNtracert")
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            results = executor.map(lambda ip: TCPSYNtraceProbe.SYN_probe(ip, ports, timeout, retries), network.hosts())
+
+        for hop, ip, latency in results:
+            Output.print_syn_tracert_result(hop, ip, latency)
+            hops.append({
+                "hop":hop,
+                "ip": ip,
+                "latency": latency
+            })
+
+        handle_scan_output(hops, scantype="SYNtracert", filename=filename, ftype=ftype)
+        return hops
+
+    @staticmethod
+    def SYN_probe(ip, ports, timeout, retries):
+        hop_ip = None
+        rtt = None
+        for port in ports:
+            for ttl in range(1, 31):
+                for attempt in range(retries):
+                    try:
+                        src_port = Utilities.randomize_sport()
+                        seq_num = Utilities.randomize_seq()
+                        window_size = Utilities.randomize_window()
+
+                        syn_packet = IP(dst=str(ip), ttl=ttl) / TCP(sport=src_port, dport=port, flags='S', seq=seq_num, window=window_size)
+                        start = time.time()
+                        syn_ack_resp = sr1(syn_packet, timeout=timeout, verbose=0)
+                        rtt = (time.time() - start) * 1000
+
+                        if syn_ack_resp and syn_ack_resp.haslayer(TCP):
+                            hop_ip = syn_ack_resp.src
+                            tcp_layer = syn_ack_resp.getlayer(TCP)
+                            if tcp_layer.flags & 0x12 == 0x12:
+                                rst_packet = IP(dst=str(ip), ttl=ttl) / TCP(sport=src_port, dport=port, flags='R', seq=seq_num + 1, window=window_size)
+                                send(rst_packet, verbose=0)
+                                return (ttl, str(hop_ip), rtt)
+                        delay = Utilities.randomize_time("stealth")
+                        time.sleep(delay)
+                    except Exception as e:
+                        print(f"[!] Error scanning {ip}:{port} - {e}")
+            return (ttl, 'No response', rtt)
+
 
 SCAN_METHODS = {
     "connect": TCPConnectScan.scan,
@@ -464,5 +531,6 @@ SCAN_METHODS = {
     "hostname": TCPHostname.scan,
     "FIN": TCPFINScan.scan,
     "ACK": TCPACKScan.scan,
-    "XMAS": TCPXMASScan.scan
+    "XMAS": TCPXMASScan.scan,
+    "SYNtracert": TCPSYNtraceProbe.scan
 }
