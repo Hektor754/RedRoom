@@ -27,6 +27,7 @@ class Handler:
         parser.add_argument('--port', '-p', type=str, default=None, help='Comma-separated list of ports (e.g., 80,443)')
         parser.add_argument('--fin', '-f', action='store_true', help='Perform FIN scan')
         parser.add_argument('--ack', '-a', action='store_true', help='Perform ACK scan')
+        parser.add_argument('--xmas', '-x', action='store_true', help='Perform XMAS scan')
         args, unknown = parser.parse_known_args(extra_args)
         if unknown:
             print(f"[!] Warning: Unknown TCP scan options ignored: {unknown}")
@@ -60,6 +61,8 @@ class Handler:
 
         if tcp_flags.fin or tcp_flags.ack:
             ports = tcp_flags.port if tcp_flags.port else FIN_PORTS
+        elif tcp_flags.syn:
+            ports = Utilities.random_port
         else:
             ports = tcp_flags.port if tcp_flags.port else COMMON_PORTS
 
@@ -69,6 +72,8 @@ class Handler:
             scan_func = SCAN_METHODS["hostname"]
         elif tcp_flags.fin:
             scan_func = SCAN_METHODS["FIN"]
+        elif tcp_flags.xmas:
+            scan_func = SCAN_METHODS["XMAS"]
         elif tcp_flags.ack:
             scan_func = SCAN_METHODS["ACK"]
         elif tcp_flags.syn:
@@ -113,9 +118,13 @@ class Output:
 
     @staticmethod
     def print_syn_tracert_result(ttl, ip, rtt):
-        ip_display = ip if ip else "*"
-        rtt_display = f"{rtt:.2f} ms" if rtt else "Timeout"
-        print(f"{ttl:<5}{ip_display:<20}{rtt_display:<15}")
+        ttl_display = str(ttl) if ttl is not None else "*"
+        ip_display = ip if ip and ip != "No response" else "*"
+        if rtt is None:
+            rtt_display = "   *     "
+        else:
+            rtt_display = f"{rtt:.2f} ms"
+        print(f"{ttl_display:<5} {ip_display:<20} {rtt_display:<10}")
 
     @staticmethod
     def print_host_result(ip, status):
@@ -137,6 +146,10 @@ class Utilities:
     @staticmethod
     def randomize_sport():
         return random.randint(49152, 65535)
+    
+    @staticmethod
+    def random_port(start=1024, end=65535):
+        return random.randint(start, end)
 
     @staticmethod
     def randomize_seq():
@@ -481,48 +494,64 @@ class TCPSYNtraceProbe:
         Output.print_SYNtracert_banner(scan_type="SYNtracert")
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            results = executor.map(lambda ip: TCPSYNtraceProbe.SYN_probe(ip, ports, timeout, retries), network.hosts())
+            results_per_ip = executor.map(lambda ip: TCPSYNtraceProbe.SYN_probe(ip, ports, timeout, retries), network.hosts())
 
-        for hop, ip, latency in results:
-            Output.print_syn_tracert_result(hop, ip, latency)
-            hops.append({
-                "hop":hop,
-                "ip": ip,
-                "latency": latency
-            })
+        for results in results_per_ip:
+            for hop, ip, latency in results:
+                Output.print_syn_tracert_result(hop, ip, latency)
+                hops.append({
+                    "hop":hop,
+                    "ip": ip,
+                    "latency": latency
+                })
 
         handle_scan_output(hops, scantype="SYNtracert", filename=filename, ftype=ftype)
         return hops
 
     @staticmethod
-    def SYN_probe(ip, ports, timeout, retries):
-        hop_ip = None
-        rtt = None
-        for port in ports:
-            for ttl in range(1, 31):
-                for attempt in range(retries):
-                    try:
-                        src_port = Utilities.randomize_sport()
-                        seq_num = Utilities.randomize_seq()
-                        window_size = Utilities.randomize_window()
+    def SYN_probe(ip, port, timeout, retries):
+        results = []
+        for ttl in range(1, 31):
+            hop_ip = None
+            rtt = None
+            responded = False
+            for attempt in range(retries):
+                try:
+                    src_port = Utilities.randomize_sport()
+                    seq_num = Utilities.randomize_seq()
+                    window_size = Utilities.randomize_window()
 
-                        syn_packet = IP(dst=str(ip), ttl=ttl) / TCP(sport=src_port, dport=port, flags='S', seq=seq_num, window=window_size)
-                        start = time.time()
-                        syn_ack_resp = sr1(syn_packet, timeout=timeout, verbose=0)
-                        rtt = (time.time() - start) * 1000
+                    syn_packet = IP(dst=str(ip), ttl=ttl) / TCP(sport=src_port, dport=port, flags='S', seq=seq_num, window=window_size)
+                    start = time.time()
+                    syn_ack_resp = sr1(syn_packet, timeout=timeout, verbose=0)
+                    rtt = (time.time() - start) * 1000
 
-                        if syn_ack_resp and syn_ack_resp.haslayer(TCP):
+                    if syn_ack_resp:
+                        if syn_ack_resp.haslayer(TCP):
                             hop_ip = syn_ack_resp.src
                             tcp_layer = syn_ack_resp.getlayer(TCP)
-                            if tcp_layer.flags & 0x12 == 0x12:
-                                rst_packet = IP(dst=str(ip), ttl=ttl) / TCP(sport=src_port, dport=port, flags='R', seq=seq_num + 1, window=window_size)
-                                send(rst_packet, verbose=0)
-                                return (ttl, str(hop_ip), rtt)
-                        delay = Utilities.randomize_time("stealth")
-                        time.sleep(delay)
-                    except Exception as e:
-                        print(f"[!] Error scanning {ip}:{port} - {e}")
-            return (ttl, 'No response', rtt)
+                            if tcp_layer.flags & 0x12 == 0x12 or tcp_layer.flags & 0x14 == 0x14:
+                                responded = True
+                                if tcp_layer.flags & 0x12 == 0x12:
+                                    rst_packet = IP(dst=str(ip), ttl=ttl) / TCP(sport=src_port, dport=port, flags='R', seq=seq_num + 1, window=window_size)
+                                    send(rst_packet, verbose=0)
+                                break
+                        elif syn_ack_resp.haslayer(ICMP):
+                            icmp_layer = syn_ack_resp.getlayer(ICMP)
+                            if icmp_layer.type == 11 and icmp_layer.code == 0:
+                                hop_ip = syn_ack_resp.src
+                                responded = True
+                                break
+                    delay = Utilities.randomize_time("stealth")
+                    time.sleep(delay)
+                except Exception as e:
+                    print(f"[!] Error scanning {ip}:{port} - {e}")
+            if responded:
+                results.append((ttl, str(hop_ip), rtt))
+            else:
+                results.append((ttl, "*", None))
+        return results
+
 
 
 SCAN_METHODS = {
