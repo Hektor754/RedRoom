@@ -28,6 +28,7 @@ class Handler:
         parser.add_argument('--fin', '-f', action='store_true', help='Perform FIN scan')
         parser.add_argument('--ack', '-a', action='store_true', help='Perform ACK scan')
         parser.add_argument('--xmas', '-x', action='store_true', help='Perform XMAS scan')
+        parser.add_argument('--syn', '-Sn', action='store_true', help='Perform SYN scan')
         args, unknown = parser.parse_known_args(extra_args)
         if unknown:
             print(f"[!] Warning: Unknown TCP scan options ignored: {unknown}")
@@ -62,7 +63,7 @@ class Handler:
         if tcp_flags.fin or tcp_flags.ack:
             ports = tcp_flags.port if tcp_flags.port else FIN_PORTS
         elif tcp_flags.syn:
-            ports = Utilities.random_port
+            ports = Utilities.random_port()
         else:
             ports = tcp_flags.port if tcp_flags.port else COMMON_PORTS
 
@@ -491,7 +492,7 @@ class TCPSYNtraceProbe:
     def scan(network, ports, timeout, retries, filename, ftype, max_workers=MAX_WORKERS):
         hops = []
 
-        Output.print_SYNtracert_banner(scan_type="SYNtracert")
+        Output.print_SYNtracert_banner()
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             results_per_ip = executor.map(lambda ip: TCPSYNtraceProbe.SYN_probe(ip, ports, timeout, retries), network.hosts())
