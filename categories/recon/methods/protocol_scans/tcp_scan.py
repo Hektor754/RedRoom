@@ -499,7 +499,6 @@ class TCPSYNtraceProbe:
 
         for results in results_per_ip:
             for hop, ip, latency in results:
-                Output.print_syn_tracert_result(hop, ip, latency)
                 hops.append({
                     "hop":hop,
                     "ip": ip,
@@ -548,8 +547,10 @@ class TCPSYNtraceProbe:
                 except Exception as e:
                     print(f"[!] Error scanning {ip}:{port} - {e}")
             if responded:
+                Output.print_syn_tracert_result(ttl, str(hop_ip), rtt)
                 results.append((ttl, str(hop_ip), rtt))
             else:
+                Output.print_syn_tracert_result(ttl, "*", None)
                 results.append((ttl, "*", None))
         return results
 
