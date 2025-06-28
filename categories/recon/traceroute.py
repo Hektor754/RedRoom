@@ -3,6 +3,12 @@ from .methods.protocol_scans.udp_scan import UDPtracert
 from .methods.protocol_scans.tcp_scan import Handler
 
 def run(args):
+    if not args.method:
+        args.method = "icmp"
+    
+    if args.method == "tcp" and not args.extra:
+        args.extra = "syn"
+        
     if args.method == "icmp":
         ICMPtracert.icmp_trace(args.range, args.timeout, args.retries, args.output, args.format, args.silent)
     elif args.method == "udp":
@@ -10,5 +16,4 @@ def run(args):
     elif args.method == "tcp":
         method = Handler.parse_tcp_flags(args.extra)
         Handler.tcp_scan(args.range, method, args.timeout, args.retries, args.output, args.format)
-        
         
