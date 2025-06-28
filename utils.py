@@ -133,7 +133,7 @@ def save_results_json(results,filename):
     print(f"\n[+] Results saved to {filename}")
 
 def handle_scan_output(results, scantype, filename=None, ftype=None):
-    if not scantype == "dnsenum":
+    if scantype not in ("dnsenum", "traceroute"):
         print_summary(results, scantype=scantype)
 
     if ftype and not filename:
