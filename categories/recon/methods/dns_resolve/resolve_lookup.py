@@ -9,12 +9,16 @@ class Lookup:
     
     @staticmethod
     def parse_dns_flags(extra_args):
-        parser_dnsenum = argparse.ArgumentParser()
+        parser_dnsenum = argparse.ArgumentParser(prog="dnsenum", add_help=False)
         parser_dnsenum.add_argument('--subdomains', action='store_true', help='Perform subdomain enumeration')
         parser_dnsenum.add_argument('--method', choices=['passive', 'brute'], default='passive')
+        
         args, unknown = parser_dnsenum.parse_known_args(extra_args)
+        
         if unknown:
-            print(f"[!] Warning: Unknown dns enumeration options ignored: {unknown}")
+            print(f"[!] Warning: Unknown DNS enumeration options ignored: {unknown}")
+        
+        return args
             
     @staticmethod
     def forward_lookup(domain):
