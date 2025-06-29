@@ -1,95 +1,69 @@
 import argparse
 
-def parse_args():
+def add_common_args(parser):
+    """Adds common arguments shared across all tools."""
+    parser.add_argument('--timeout', type=float, default=2.0,
+                        help='Timeout in seconds to wait for each probe (default: 2.0)')
+    parser.add_argument('--retries', type=int, default=2,
+                        help='Number of retries if no response (default: 2)')
+    parser.add_argument('--output', type=str, default=None,
+                        help='Output to save results on a file')
+    parser.add_argument('--format', choices=['json', 'csv'], default=None,
+                        help='Format to save results (json or csv)')
+    parser.add_argument('--silent', action='store_true',
+                        help='Suppress output (silent mode)')
+
+
+def get_parser():
     parser = argparse.ArgumentParser(
         prog='redroom',
         description='RedRoom: All-in-one Hacking Toolkit'
     )
 
-    group = parser.add_mutually_exclusive_group()
+    parser.add_argument('-c', '--category', required=True, choices=['recon'],
+                        help='Tool category (e.g., recon)')
 
-    parser.add_argument(
-        '-c','--category',
-        required=True,
-        choices=['recon'],
-        help='Tool category (e.g., recon)'
-    )
+    subparsers = parser.add_subparsers(dest='tool', required=True,
+                                       help='Tool name within category')
 
-    parser.add_argument(
-        '-t', '--tool',
-        required=True,
-        choices=['hostscan','hostprofile','dnsenum','traceroute'],
-        help='Tool name within category (e.g., hostscan)'
-    )
+    # ─── Hostscan ─────────────────────────────────────────
+    hostscan = subparsers.add_parser('hostscan', help='Perform host discovery')
+    hostscan.add_argument('-r', '--range', required=True,
+                          help='Target IP or CIDR range')
+    hostscan.add_argument('-m', '--method', choices=['arp', 'tcp', 'icmp'],
+                          help='Discovery method')
+    add_common_args(hostscan)
 
-    parser.add_argument(
-        '-m','--method',
-        required=False,
-        choices=['arp', 'tcp','icmp'],
-        help='Method used by the tool (e.g., icmp, arp, tcp)'
-    )
+    # ─── Hostprofile ─────────────────────────────────────
+    hostprofile = subparsers.add_parser('hostprofile', help='Profile active hosts')
+    hostprofile.add_argument('-r', '--range', required=True,
+                             help='Target IP or CIDR range')
+    add_common_args(hostprofile)
 
-    parser.add_argument(
-        '-r','--range',
-        required=False,
-        help='Tool target IP or IP range (CIDR notation supported)'
-    )
+    # ─── DNS Enumeration ─────────────────────────────────
+    dnsenum = subparsers.add_parser('dnsenum', help='Enumerate DNS records')
+    dnsenum.add_argument('-d', '--domain', required=True,
+                         help='Target domain for DNS lookup')
+    group = dnsenum.add_mutually_exclusive_group()
+    group.add_argument('--min', action='store_true',
+                       help='Minimal DNS enumeration (A, AAAA, NS)')
+    group.add_argument('--full', action='store_true',
+                       help='Full DNS enumeration (A, AAAA, MX, etc.)')
+    add_common_args(dnsenum)
 
-    parser.add_argument(
-        '-d','--domain',
-        required=False,
-        help='Tool target domain'
-    )
+    # ─── Traceroute ──────────────────────────────────────
+    traceroute = subparsers.add_parser('traceroute', help='Run traceroute to a target')
+    traceroute.add_argument('-r', '--range', required=True,
+                            help='Target IP or CIDR range')
+    traceroute.add_argument('-m', '--method', choices=['tcp', 'udp', 'icmp'],
+                            help='Traceroute method')
+    add_common_args(traceroute)
 
-    parser.add_argument(
-        '--timeout',
-        type=float,
-        default=2.0,
-        required=False,
-        help='Timeout in seconds to wait for each probe (default: 1.0)'
-    )
+    return parser
 
-    parser.add_argument(
-        '--retries',
-        type=int,
-        default=2,
-        required=False,
-        help='Number of retries if no response (default: 1)'
-    )
 
-    group.add_argument(
-        '--min',
-        action='store_true',
-        help='Minimal DNS enumeration (A, AAAA, NS)'
-    )
-
-    group.add_argument(
-        '--full',
-        action='store_true',
-        help='Full DNS enumeration (A, AAAA, MX, NS, CNAME, TXT, SOA, SRV, AXFR)'
-    )
-
-    parser.add_argument(
-        '--output',
-        type=str,
-        default=None,
-        help='Output to save results on a file'
-    )
-
-    parser.add_argument(
-        '--format',
-        choices=['json','csv'],
-        type=str,
-        default=None,
-        help='format to save results on a file'
-    )
-
-    parser.add_argument(
-        '--silent',
-        action='store_true',
-        help='handles the verbose'
-    )
-
+def parse_args():
+    parser = get_parser()
     args, unknown = parser.parse_known_args()
     args.extra = unknown
     return args
