@@ -8,7 +8,6 @@ def run(args):
     
     if args.method == "tcp" and not args.extra:
         args.extra = "syn"
-        
     if args.method == "icmp":
         ICMPtracert.icmp_trace(args.range, args.timeout, args.retries, args.output, args.format, args.silent)
     elif args.method == "udp":
