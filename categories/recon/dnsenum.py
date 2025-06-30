@@ -1,5 +1,7 @@
 import ipaddress
+import argparse
 from .methods.dns_resolve.resolve_lookup import Lookup
+from .methods.dns_resolve.subdomain_resolve import Subdomain_Lookup
 from utils import handle_scan_output
 
 DNS_RECORDS = {
@@ -28,11 +30,12 @@ def parse_ips(ip_range):
         return [ip_range]
 
 def run(args):
+
     if not args.domain:
         print("[!] Error: No domain specified")
         return
 
-    domain = args.domain
+    domain = args.domain           
 
     if args.min:
         records_to_query = MODES['min']
