@@ -1,12 +1,12 @@
 from core.cli import parse_args
-from categories.recon import hostscan,hostprofile,dnsenum,traceroute
+from categories.recon import hostscan,hostprofile,dnsenum,traceroute,subenum
 
 
 def main():
     args = parse_args()
 
     valid_categories = {"recon"}
-    valid_tools = {"hostscan","hostprofile","dnsenum","traceroute"}
+    valid_tools = {"hostscan","hostprofile","dnsenum","traceroute","subenum"}
 
     if args.category not in valid_categories:
         print(f"[!] Error: Invalid category '{args.category}'. Valid options: {', '.join(valid_categories)}")
@@ -32,6 +32,11 @@ def main():
                 dnsenum.run(args)
             except Exception as e:
                 print(f"[!] Unexpected error during scan: {e}")
+        elif args.tool == "subenum":
+            try:
+                subenum.run(args)
+            except Exception as e:
+                print(f"[!] Unexpected error during scan: {e}")     
         elif args.tool == "traceroute":
             try:
                 traceroute.run(args)
