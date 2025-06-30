@@ -50,6 +50,13 @@ def get_parser():
     group.add_argument('--full', action='store_true',
                        help='Full DNS enumeration (A, AAAA, MX, etc.)')
     add_common_args(dnsenum)
+    
+    # ─── Subdomain Enumeration ─────────────────────────────────
+    subenum = subparsers.add_parser('subenum', help='Perform subdomain enumeration')
+    subenum.add_argument('-d', '--domain', required=True,
+                         help='Target domain for DNS lookup')
+    subenum.add_argument('-m','--method', choices=['passive', 'brute'], default='passive')
+    add_common_args(subenum)
 
     # ─── Traceroute ──────────────────────────────────────
     traceroute = subparsers.add_parser('traceroute', help='Run traceroute to a target')
