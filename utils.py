@@ -1,5 +1,6 @@
 from termcolor import colored
 from colorama import Fore,Style
+from itertools import zip_longest
 import csv
 import json
 import os
@@ -118,13 +119,35 @@ def sanitize_results(results):
             sanitized[key] = val
     return sanitized
 
+def save_results_json(results,filename):
+    with open(filename, "w") as f:
+        json.dump(results, f, indent=2)
+    print(f"\n[+] Results saved to {filename}")
+
 def save_dns_results_json(results, filename):
     results = sanitize_results(results)
     with open(filename, "w") as f:
         json.dump(results, f, indent=2)
     print(f"\n[+] DNS results saved to {filename}")
 
+def save_results_json_brute(results, filename):
+    found_subdomains, wordlist_count = results
+    data = {
+        "wordlist_count": wordlist_count,
+        "subdomains_found_count": len(found_subdomains),
+        "subdomains": found_subdomains
+    }
+    with open(filename, "w") as f:
+        json.dump(data, f, indent=2)
+    print(f"\n[+] Brute force results saved to {filename}")
 
+def save_results_csv(results, filename):
+    with open(filename, mode="w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["hostname", "ip", "status"])
+        writer.writeheader()
+        writer.writerows(results)
+    print(f"\n[+] results saved to {filename}")
+    
 def save_dns_results_csv(results, filename):
     results = sanitize_results(results)
     flat_records = []
@@ -153,13 +176,19 @@ def save_dns_results_csv(results, filename):
         writer.writerows(flat_records)
 
     print(f"\n[+] DNS results saved to {filename}")
-
-def save_results_csv(results, filename):
+    
+def save_subenum_results_csv_brute(results, filename):
+    found_subdomains, wordlist_count = results
     with open(filename, mode="w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["hostname", "ip", "status"])
-        writer.writeheader()
-        writer.writerows(results)
-    print(f"\n[+] results saved to {filename}")
+        writer = csv.writer(f)
+        writer.writerow([f"Total wordlist entries: {wordlist_count}"])
+        writer.writerow([f"Total subdomains found: {len(found_subdomains)}"])
+        writer.writerow([])
+        writer.writerow(["Subdomains Found"])
+        
+        for sub in found_subdomains:
+            writer.writerow([sub])
+    print(f"\n[+] Brute force results saved to {filename}")
     
 def save_trrt_results_csv(results, filename):
     with open(filename, mode="w", newline="") as f:
@@ -167,12 +196,20 @@ def save_trrt_results_csv(results, filename):
         writer.writeheader()
         writer.writerows(results)
     print(f"\n[+] results saved to {filename}")
+    
+def save_subenum_results_csv(results, filename):
+    sources = list(results.get("per_source", {}).keys())
+    columns = [results["per_source"].get(src, []) for src in sources]
 
-def save_results_json(results,filename):
-    with open(filename, "w") as f:
-        json.dump(results, f, indent=2)
+    rows = zip_longest(*columns, fillvalue="")
+
+    with open(filename, mode="w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(sources)
+        for row in rows:
+            writer.writerow(row)
     print(f"\n[+] Results saved to {filename}")
-
+        
 def handle_scan_output(results, scantype, filename=None, ftype=None):
     if scantype not in ("dnsenum", "traceroute"):
         print_summary(results, scantype=scantype)
@@ -202,7 +239,23 @@ def handle_scan_output(results, scantype, filename=None, ftype=None):
             elif ftype == "csv":
                 save_trrt_results_csv(results, filename)
             elif ftype == "json":
-                save_results_json(results, filename)            
+                save_results_json(results, filename) 
+        elif scantype == "subenum":
+            if ftype not in ("csv", "json"):
+                print(f"[!] Unsupported output format: {ftype}")
+            else:
+                if isinstance(results, dict) and "all" in results and "per_source" in results:
+                    if ftype == "csv":
+                        save_subenum_results_csv(results, filename)
+                    else:
+                        save_results_json(results, filename)
+                elif isinstance(results, tuple) and len(results) == 2:
+                    if ftype == "csv": 
+                        save_subenum_results_csv_brute(results, filename)
+                    else: 
+                        save_results_json_brute(results, filename)
+                else:
+                    print("[!] Unknown results format, cannot save.")           
         else:
             if ftype not in ("csv", "json"):
                 print(f"[!] Unsupported output format: {ftype}")
