@@ -1,8 +1,17 @@
 from core.cli import parse_args
 from categories.recon import hostscan,hostprofile,dnsenum,traceroute,subenum
+from utils import print_welcome_stamp
+import sys
 
 
 def main():
+    
+    args = sys.argv[1:]
+
+    if len(args) == 1 and args[0].lower() == "redroom":
+        print_welcome_stamp()
+        return
+        
     args = parse_args()
 
     valid_categories = {"recon"}
