@@ -1,5 +1,6 @@
 import argparse
 from .methods.dns_resolve.subdomain_resolve import Subdomain_Lookup
+import utils
 
 
 def parse_dns_flags(extra_args):
@@ -50,4 +51,12 @@ def run(args):
             }.items() if v is not None
         }
         
-        Subdomain_Lookup.run(sources_to_use,domain, api_keys=api_keys) 
+        results = Subdomain_Lookup.run(sources_to_use,domain, api_keys=api_keys)
+        utils.print_sub_passive_results(results)
+        
+    elif method == "brute": 
+        wordlist = "subdomains-top1million-5000.txt"
+        results, attempts = Subdomain_Lookup.bruteforce(domain, wordlist)
+        utils.print_sub_brute_results(domain,results, attempts)
+        
+        
