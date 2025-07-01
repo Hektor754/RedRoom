@@ -68,6 +68,47 @@ def print_summary(results,scantype):
     print(f"-Hosts active: {active_hosts}")
     print(f"-Hosts inactive: {down_hosts}")
 
+def print_sub_passive_results(results):
+    all_subdomains = results.get("all", [])
+    per_source = results.get("per_source", {})
+
+    print("\n" + "=" * 60)
+    print(f"[+] Total Unique Subdomains Found: {len(all_subdomains)}")
+    print("=" * 60 + "\n")
+
+    for source, subdomains in per_source.items():
+        count = len(subdomains)
+        print(f"  [•] {source.capitalize():<15} → {count} subdomain{'s' if count != 1 else ''}")
+
+    print("\n" + "-" * 60)
+    print("[+] Combined Subdomains List:")
+    print("-" * 60 + "\n")
+
+    for sub in sorted(all_subdomains):
+        print(f"  - {sub}")
+
+    print("\n" + "=" * 60 + "\n")
+
+def print_sub_brute_results(domain, found_subdomains, total_attempts):
+    print("\n" + "=" * 60)
+    print(f"[+] Brute-Force Subdomain Enumeration Results for: {domain}")
+    print("=" * 60)
+    
+    print(f"[•] Total Attempts Made: {total_attempts}")
+    print(f"[•] Total Valid Subdomains Found: {len(found_subdomains)}")
+    
+    if found_subdomains:
+        print("\n" + "-" * 60)
+        print("[+] Discovered Subdomains:")
+        print("-" * 60)
+        for sub in sorted(found_subdomains):
+            print(f"  └─ {sub}")
+    else:
+        print("\n[-] No subdomains found via brute-force.")
+
+    print("=" * 60 + "\n")
+    
+    
 def sanitize_results(results):
     sanitized = {}
     for key, val in results.items():
