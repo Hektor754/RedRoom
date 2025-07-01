@@ -54,9 +54,13 @@ def run(args):
         results = Subdomain_Lookup.run(sources_to_use,domain, api_keys=api_keys)
         utils.print_sub_passive_results(results)
         
+        utils.handle_scan_output(results,scantype="subenum",filename=args.output,ftype=args.format)
+        
     elif method == "brute": 
         wordlist = "subdomains-top1million-5000.txt"
-        results, attempts = Subdomain_Lookup.bruteforce(domain, wordlist)
+        subdom, attempts = Subdomain_Lookup.bruteforce(domain, wordlist)
+        results = (subdom, attempts)
         utils.print_sub_brute_results(domain,results, attempts)
+        utils.handle_scan_output(results,scantype="subenum",filename=args.output,ftype=args.format)
         
         
