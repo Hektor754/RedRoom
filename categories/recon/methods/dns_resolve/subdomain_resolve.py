@@ -1,6 +1,8 @@
 import requests
 from requests.exceptions import SSLError
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
+import socket
 
 SUBDOMAIN_SOURCES = {
     "crtsh": "https://crt.sh/?q=%25.{domain}&output=json",
@@ -13,10 +15,39 @@ SUBDOMAIN_SOURCES = {
 }
 
 class Subdomain_Lookup:
+    
+    @staticmethod
+    def bruteforce(domain, wordlist, max_workers=30):
+        found = set()
+        with open(wordlist, 'r') as f:
+            sub_names = [line.strip() for line in f if line.strip()]
+
+        print(f"Starting brute force on {domain} with {len(sub_names)} entries...")
+
+        def check_subdomain(sub):
+            full_domain = f"{sub}.{domain}"
+            try:
+                ip = socket.gethostbyname(full_domain)
+                return full_domain, ip
+            except socket.gaierror:
+                return None
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(check_subdomain, sub) for sub in sub_names]
+
+            for future in as_completed(futures):
+                result = future.result()
+                if result:
+                    full_domain, ip = result
+                    print(f"[FOUND] {full_domain} -> {ip}")
+                    found.add(full_domain)
+
+        return sorted(found), len(sub_names)
 
     @staticmethod
     def run(arguments, domain, api_keys=None):
         all_subdomains = set()
+        source_data = {}
         api_keys = api_keys or {}
 
         for argument in arguments:
@@ -30,11 +61,17 @@ class Subdomain_Lookup:
                     subdomains = scan(domain, api_keys[argument])
                 else:
                     subdomains = scan(domain)
+                    
+                subdomains = set(subdomains)
+                source_data[argument] = subdomains
                 all_subdomains.update(subdomains)
             except Exception as e:
                 print(f"[!] Error running scan for {argument}: {e}")
 
-        return sorted(all_subdomains)
+        return {
+            "all": sorted(all_subdomains),
+            "per_source": source_data
+        }
         
     @staticmethod
     def get_from_crtsh(domain):
