@@ -5,8 +5,7 @@ import dns.exception
 import socket
 import argparse
 
-class Lookup:
-              
+class Lookup:      
     @staticmethod
     def forward_lookup(domain):
         try:
@@ -39,12 +38,14 @@ class Lookup:
 
         for ns in ns_records:
             try:
-                zone = dns.zone.from_xfr(dns.query.xfr(ns, domain, timeout=5))
-                if zone is None:
-                    continue
-                results[ns] = []
-                for name, node in zone.nodes.items():
-                    results[ns].append(name.to_text())
+                ns_ip_list = Lookup.forward_lookup(ns)
+                for ns_ip in ns_ip_list:
+                    zone = dns.zone.from_xfr(dns.query.xfr(ns_ip, domain, timeout=5))
+                    if zone is None:
+                        continue
+                    results[ns] = []
+                    for name, node in zone.nodes.items():
+                        results[ns].append(name.to_text())
             except dns.exception.DNSException:
                 continue
         return results
