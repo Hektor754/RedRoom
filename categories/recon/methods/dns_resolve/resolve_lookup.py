@@ -1,11 +1,83 @@
+from ipwhois import IPWhois
 import dns.resolver
 import dns.query
 import dns.zone
 import dns.exception
 import socket
-import argparse
+import re
 
-class Lookup:      
+class Lookup:
+    @staticmethod
+    def ip_asn_lookup(ip):
+        try:
+            obj = IPWhois(ip)
+            result = obj.lookup_rdap()
+            return {
+                "ip": ip,
+                "asn": result.get("asn"),
+                "asn_description": result.get("asn_description"),
+                "asn_country_code": result.get("asn_country_code"),
+                "network_name": result.get("network", {}).get("name"),
+                "network_cidr": result.get("network", {}).get("cidr"),
+            }
+        except Exception as e:
+            print(f"[-] ASN lookup failed for {ip}: {e}")
+            return None
+    
+    @staticmethod
+    def ips_whois_server_lookup(ips):
+        try:
+            for ip in ips:
+                obj = IPWhois(ip)
+                result = obj.lookup_rdap()
+                return {
+                    "asn": result.get("asn"),
+                    "asn_description": result.get("asn_description"),
+                    "asn_country_code": result.get("asn_country_code"),
+                    "network_name": result.get("network", {}).get("name"),
+                    "network_range": result.get("network", {}).get("cidr"),
+                    "org": result.get("network", {}).get("org"),
+                    "country": result.get("network", {}).get("country"),
+                }
+        except Exception as e:
+            return {"error": str(e)}
+        
+    @staticmethod
+    def domain_whois_server_lookup(domain):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.connect(("whois.iana.org", 43))
+            s.send((domain + "\r\n").encode())
+            response = b""
+            while True:
+                data = s.recv(4096)
+                if not data:
+                    break
+                response += data
+            s.close()
+
+            match = re.search(r"refer:\s*(\S+)", response.decode())
+            if not match:
+                return {"error": "Could not find WHOIS server"}
+            whois_server = match.group(1)
+
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.connect((whois_server, 43))
+            s.send((domain + "\r\n").encode())
+            response = b""
+            while True:
+                data = s.recv(4096)
+                if not data:
+                    break
+                response += data
+            s.close()
+
+            decoded = response.decode(errors="ignore")
+            return {"whois_raw": decoded}
+
+        except Exception as e:
+            return {"error": str(e)}
+          
     @staticmethod
     def forward_lookup(domain):
         try:
