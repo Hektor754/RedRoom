@@ -3,6 +3,7 @@ import argparse
 from .methods.dns_resolve.resolve_lookup import Lookup
 from .methods.dns_resolve.subdomain_resolve import Subdomain_Lookup
 from utils import handle_scan_output
+import traceback
 
 DNS_RECORDS = {
     'A': (Lookup.forward_lookup, True),
@@ -12,8 +13,7 @@ DNS_RECORDS = {
     'CNAME': (Lookup.get_cname, False),
     'TXT': (Lookup.get_txt_records, True),
     'SOA': (Lookup.get_soa_record, False),
-    'SRV': (Lookup.get_srv_records, True),
-    'AXFR': (Lookup.attempt_zone_transfer, False),
+    'SRV': (Lookup.get_srv_records, True)
 }
 
 MODES = {
@@ -35,7 +35,24 @@ def run(args):
         print("[!] Error: No domain specified")
         return
 
-    domain = args.domain           
+    domain = args.domain
+    
+    if args.zonetransfer:
+        try:
+            results = Lookup.attempt_zone_transfer(domain)
+        except Exception:
+            print("[!] Unexpected error during scan:")
+            traceback.print_exc()
+        if results:
+            for ns, recs in results.items():
+                print(f"  - Zone transfer successful from {ns}:")
+                for r in recs:
+                    print(f"    - {r}")
+        else:
+            print("  - Zone transfer unsuccessful or denied")
+            return
+        handle_scan_output(results, scantype="dnsenum", filename=args.output, ftype=args.format)
+        return
 
     if args.min:
         records_to_query = MODES['min']
@@ -61,16 +78,6 @@ def run(args):
         if results is None or (is_list and len(results) == 0):
             print("  - None")
             dns_results[record] = None
-            continue
-
-        if record == 'AXFR':
-            if results:
-                for ns, recs in results.items():
-                    print(f"  - Zone transfer successful from {ns}:")
-                    for r in recs:
-                        print(f"    - {r}")
-            else:
-                print("  - Zone transfer unsuccessful or denied")
             continue
 
         if not results:
@@ -101,8 +108,4 @@ def run(args):
             print(f"  - {ip} => {rev if rev else 'N/A'}")
         dns_results["PTR"] = ptr_results
 
-
-    if args.output:
-        filecreate = args.output
-        scantype = "dnsenum"
-        handle_scan_output(dns_results, scantype, filecreate)
+        handle_scan_output(dns_results, scantype="dnsenum", filename=args.output, ftype=args.format)
