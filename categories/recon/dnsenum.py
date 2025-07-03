@@ -2,7 +2,7 @@ import ipaddress
 import argparse
 from .methods.dns_resolve.resolve_lookup import Lookup
 from .methods.dns_resolve.subdomain_resolve import Subdomain_Lookup
-from utils import handle_scan_output
+from utils import handle_scan_output,print_zone_transfer_results,print_whois_results,print_asn_results
 import traceback
 
 DNS_RECORDS = {
@@ -36,7 +36,19 @@ def run(args):
         return
 
     domain = args.domain
+    ips = parse_ips(args.range)
     
+    if args.whois:
+        if domain:
+            results = Lookup.domain_whois_server_lookup(domain)
+        elif ips:
+            results = Lookup.ips_whois_server_lookup(ips)
+        print_whois_results(results)         
+    elif args.asn:
+        results = Lookup.ip_asn_lookup(ips)
+        print_asn_results(results)
+    handle_scan_output(dns_results, scantype="dnsenum", filename=args.output, ftype=args.format)
+        
     if args.zonetransfer:
         try:
             results = Lookup.attempt_zone_transfer(domain)
@@ -51,6 +63,7 @@ def run(args):
         else:
             print("  - Zone transfer unsuccessful or denied")
             return
+        print_zone_transfer_results(results)
         handle_scan_output(results, scantype="dnsenum", filename=args.output, ftype=args.format)
         return
 
