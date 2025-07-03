@@ -49,6 +49,8 @@ def get_parser():
                        help='Minimal DNS enumeration (A, AAAA, NS)')
     group.add_argument('--full', action='store_true',
                        help='Full DNS enumeration (A, AAAA, MX, etc.)')
+    group.add_argument('-zt','--zonetransfer',action='store_true',
+                       help='Try to use zonetransfering to grab all DNS records')
     add_common_args(dnsenum)
     
     # ─── Subdomain Enumeration ─────────────────────────────────
