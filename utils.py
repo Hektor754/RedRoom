@@ -68,6 +68,43 @@ def print_welcome_stamp():
     print()
     print(quote)
 
+def print_asn_results(ip, result):
+    print("\n" + "=" * 40)
+    print(f"[+] ASN Results for: {ip}")
+    print("=" * 40)
+
+    if not result:
+        print("[-] No ASN information found or lookup failed.")
+        return
+
+    fields_to_print = {
+        "ASN": result.get("asn"),
+        "Description": result.get("asn_description"),
+        "Country": result.get("asn_country_code"),
+        "Network Name": result.get("network_name"),
+        "CIDR": result.get("network_cidr")
+    }
+
+    for key, value in fields_to_print.items():
+        print(f"{key}: {value if value else 'N/A'}")
+        
+def print_whois_results(target, result):
+    print("\n" + "=" * 40)
+    print(f"[+] WHOIS Results for: {target}")
+    print("=" * 40)
+
+    if not result:
+        print("[-] No WHOIS information found or lookup failed.")
+        return
+
+    if isinstance(result, dict):
+        for key, value in result.items():
+            if isinstance(value, list):
+                value = ', '.join(str(v) for v in value)
+            print(f"{key}: {value}")
+    else:
+        print(str(result))
+        
 def print_zone_transfer_results(results):
     if not results:
         print("[!] No zone transfer data found.")
