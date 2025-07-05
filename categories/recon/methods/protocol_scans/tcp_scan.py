@@ -217,9 +217,6 @@ class TCPConnectScan:
                             ack_packet = IP(dst=str(ip), ttl=ttl_value) / TCP(sport=src_port, dport=port, flags="A", seq=ack_seq, ack=ack_ack, window=window_size)
                             send(ack_packet, verbose=0)
 
-                            rst_packet = IP(dst=str(ip), ttl=ttl_value) / TCP(sport=src_port, dport=port, flags="R", seq=ack_seq, ack=ack_ack)
-                            send(rst_packet, verbose=0)
-
                             return (str(ip), True)
                     delay = Utilities.randomize_time("connect")
                     time.sleep(delay)
@@ -311,10 +308,11 @@ class TCPXMASScan:
 
                     if response is None:
                         open_ports.append(port)
+                        break
 
                     if response and response.haslayer(TCP):
                         if response.getlayer(TCP).flags == 0x14:
-                            continue
+                            break
                     
                     delay = Utilities.randomize_time("XMAS")
                     time.sleep(delay)
@@ -361,17 +359,18 @@ class TCPFINScan:
 
                     if response is None:
                         open_ports.append(port)
-
+                        break
+                    
                     if response and response.haslayer(TCP):
                         if response.getlayer(TCP).flags == 0x14:
-                            continue
+                            break
                     
                     delay = Utilities.randomize_time("FIN")
                     time.sleep(delay)
             except Exception as e:
                 print(f"[!] Error scanning {ip}:{port} - {e}")
 
-        return (str(ip), list(set(open_ports)))
+        return (str(ip), open_ports)
 
 class TCPACKScan:
 
@@ -415,10 +414,11 @@ class TCPACKScan:
                         icmp = response.getlayer(ICMP)
                         if icmp.type == 3 and icmp.code in [1, 2, 3, 9, 10, 13]:
                             filtered_ports.append(port)
-
+                            break
+                        
                     if response and response.haslayer(TCP):
                         if response.getlayer(TCP).flags == 0x04:
-                            continue
+                            break
                             
                     
                     delay = Utilities.randomize_time("FIN")
@@ -426,7 +426,7 @@ class TCPACKScan:
             except Exception as e:
                 print(f"[!] Error scanning {ip}:{port} - {e}")
 
-        return (str(ip), list(set(filtered_ports)))
+        return (str(ip), filtered_ports)
     
 class TCPHostname:
 
@@ -553,7 +553,6 @@ class TCPSYNtraceProbe:
                 Output.print_syn_tracert_result(ttl, "*", None)
                 results.append((ttl, "*", None))
         return results
-
 
 
 SCAN_METHODS = {
