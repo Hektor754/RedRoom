@@ -2,7 +2,7 @@ import ipaddress
 from .methods.digital_fingerprinting.auto_host import auto_hostdiscovery
 from .methods.digital_fingerprinting.vendor_lookup import load_oui, lookup_vendor
 from utils import print_hostprofile_results
-from .methods.digital_fingerprinting.port_service_guess import quick_tcp_scan
+from .methods.digital_fingerprinting.port_scanning import TCP_PortScan
 from .methods.digital_fingerprinting.os_detection import OSDetector
 from argparse import Namespace
 
@@ -39,9 +39,12 @@ def enhance_host_information(host, oui_map, timeout):
     if mac and mac != "unknown":
         host["vendor"] = lookup_vendor(mac, oui_map)
 
-    ports, services = quick_tcp_scan(host["ip"], common_ports, timeout)
-    host["ports"] = ports
-    host["services"] = services
+    results = TCP_PortScan.Scan_method_handler(host["ip"], timeout)
+    for scan_type, scan_results in results.items():
+        for result in scan_results:
+            if result["ip"] == host["ip"]:
+                host["ports"] = result["open_ports"]
+                host["services"] = result["services"]
 
     try:
         os_detector = OSDetector()
