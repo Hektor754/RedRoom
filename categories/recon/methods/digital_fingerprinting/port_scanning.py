@@ -115,8 +115,8 @@ class Utilities:
             return random.uniform(0.2, 0.5)
         return 0.1
     
-class TCP_PortScan:
-
+class PortScan:
+        
     @staticmethod
     def parse_tcp_flags(extra_args):
         parser = argparse.ArgumentParser()
@@ -178,6 +178,7 @@ class TCP_PortScan:
             scan_funcs = [SCAN_METHODS["connect"]]
 
         all_results = {}
+        
         for scan_func in scan_funcs:
             scan_name = scan_func.__name__
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -191,14 +192,24 @@ class TCP_PortScan:
                 if scan_name in ['ACK', 'stealth','FIN']:
                     open_ports = []
                     filtered_ports = ports_found
+                    services = []
                 else:
                     open_ports = ports_found
                     filtered_ports = []
-
+                    services = []
+                    
+                    for port in open_ports:
+                        banner = PortScan.grab_banner(ip, port, timeout)
+                        services.append({
+                            "port": port,
+                            "banner": banner or COMMON_PORTS.get(port, "Unknown")
+                        })
+            
                 formatted_results.append({
                     "ip": ip,
                     "open_ports": open_ports,
                     "filtered_ports": filtered_ports,
+                    "services": services,
                     "scan_type": scan_name
                 })
 
@@ -206,8 +217,32 @@ class TCP_PortScan:
 
         return all_results
 
-            
-        
+    @staticmethod
+    def grab_banner(ip, port, timeout=2):
+        try:
+            with socket.create_connection((ip, port), timeout=timeout) as s:
+                s.settimeout(timeout)
+                return s.recv(1024).decode(errors="ignore").strip()
+        except Exception:
+            return None
+
+    #note : might not be used but keeping it in case of scalability
+    @staticmethod
+    def imcp_probe(ips, timeout, retries):
+        responsive_ips = []
+        for ip in ips:
+            pkt = IP(dst=str(ip)) / ICMP()
+            for _ in range(retries):
+                try:
+                    resp = sr1(pkt, timeout=timeout, verbose=0)
+                    if resp:
+                        responsive_ips.append(ip)
+                        break
+                except Exception:
+                    pass
+                time.sleep(0.1)
+        return responsive_ips
+     
     @staticmethod
     def connect_scan(ip, ports, timeout, retries):
         open_ports = []
@@ -362,9 +397,9 @@ class TCP_PortScan:
 
 
 SCAN_METHODS = {
-    "connect": TCP_PortScan.connect_scan,
-    "stealth": TCP_PortScan.stealth_scan,
-    "FIN": TCP_PortScan.FIN_scan,
-    "ACK": TCP_PortScan.ACK_scan,
-    "XMAS": TCP_PortScan.XMAS_scan,
+    "connect": PortScan.connect_scan,
+    "stealth": PortScan.stealth_scan,
+    "FIN": PortScan.FIN_scan,
+    "ACK": PortScan.ACK_scan,
+    "XMAS": PortScan.XMAS_scan,
 }
