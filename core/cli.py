@@ -71,7 +71,14 @@ def get_parser():
     traceroute.add_argument('-m', '--method', choices=['tcp', 'udp', 'icmp'],
                             help='Traceroute method')
     add_common_args(traceroute)
-
+    
+    # ─── Portscan ──────────────────────────────────────
+    portscan = subparsers.add_parser('portscan', help='Run a portscan to a target')
+    portscan.add_argument('-r', '--range', required=True,
+                            help='Target IP or CIDR range')
+    portscan.add_argument('-m', '--method', choices=['tcp', 'udp', 'icmp'],
+                            help='Traceroute method')
+    add_common_args(portscan)
     return parser
 
 
