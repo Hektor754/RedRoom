@@ -68,6 +68,41 @@ def print_welcome_stamp():
     print()
     print(quote)
 
+def print_portscan_results(all_results):
+    for scan_type, results in all_results.items():
+        print(colored(f"\n=== Scan Type: {scan_type.upper()} ===", "cyan", attrs=["bold"]))
+
+        if not results:
+            print(colored("No results found.\n", "red"))
+            continue
+
+        for entry in results:
+            ip = entry.get("ip", "Unknown IP")
+            open_ports = entry.get("open_ports", [])
+            filtered_ports = entry.get("filtered_ports", [])
+            services = entry.get("services", [])
+
+            print(colored(f"\n| IP: {ip}", "magenta", attrs=["bold"]))
+
+            if open_ports:
+                print(colored("| Open Ports:", "cyan", attrs=["bold"]))
+                for svc in services:
+                    port = svc.get("port", "Unknown")
+                    banner = svc.get("banner", "")
+                    banner_display = f": {banner}" if banner else ""
+                    print(colored(f"| - Port {port}{banner_display}", "cyan"))
+            else:
+                print(colored("  No open ports detected.", "yellow"))
+
+            if filtered_ports:
+                print(colored("| Filtered Ports:", "yellow", attrs=["bold"]))
+                for port in filtered_ports:
+                    print(colored(f"| - Port {port}", "yellow"))
+            else:
+                print(colored("  No filtered ports detected.", "red"))
+
+            print(colored("-" * 40, "blue"))
+            
 def print_asn_results(ip, result):
     print("\n" + "=" * 40)
     print(f"[+] ASN Results for: {ip}")
