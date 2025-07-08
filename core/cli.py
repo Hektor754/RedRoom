@@ -13,74 +13,64 @@ def add_common_args(parser):
     parser.add_argument('--silent', action='store_true',
                         help='Suppress output (silent mode)')
 
-
 def get_parser():
     parser = argparse.ArgumentParser(
         prog='redroom',
         description='RedRoom: All-in-one Hacking Toolkit'
     )
 
-    parser.add_argument('-c', '--category', required=True, choices=['recon'],
-                        help='Tool category (e.g., recon)')
+    # Top-level subparser for category
+    subparsers = parser.add_subparsers(dest='category', required=True, help='Tool category')
 
-    subparsers = parser.add_subparsers(dest='tool', required=True,
-                                       help='Tool name within category')
+    # ------------------- RECON -------------------
+    recon_parser = subparsers.add_parser('recon', help='Reconnaissance tools')
+    recon_subparsers = recon_parser.add_subparsers(dest='tool', required=True, help='Recon tool')
 
-    # ─── Hostscan ─────────────────────────────────────────
-    hostscan = subparsers.add_parser('hostscan', help='Perform host discovery')
-    hostscan.add_argument('-r', '--range', required=True,
-                          help='Target IP or CIDR range')
-    hostscan.add_argument('-m', '--method', choices=['arp', 'tcp', 'icmp'],
-                          help='Discovery method')
+    hostscan = recon_subparsers.add_parser('hostscan', help='Perform host discovery')
+    hostscan.add_argument('-r', '--range', required=True, help='Target IP or CIDR range')
+    hostscan.add_argument('-m', '--method', choices=['arp', 'tcp', 'icmp'], help='Discovery method')
     add_common_args(hostscan)
 
-    # ─── Hostprofile ─────────────────────────────────────
-    hostprofile = subparsers.add_parser('hostprofile', help='Profile active hosts')
-    hostprofile.add_argument('-r', '--range', required=True,
-                             help='Target IP or CIDR range')
+    hostprofile = recon_subparsers.add_parser('hostprofile', help='Profile active hosts')
+    hostprofile.add_argument('-r', '--range', required=True, help='Target IP or CIDR range')
     add_common_args(hostprofile)
 
-    # ─── DNS Enumeration ─────────────────────────────────
-    dnsenum = subparsers.add_parser('dnsenum', help='Enumerate DNS records')
-    dnsenum.add_argument('-d', '--domain', required=True,
-                         help='Target domain for DNS lookup')
+    dnsenum = recon_subparsers.add_parser('dnsenum', help='Enumerate DNS records')
+    dnsenum.add_argument('-d', '--domain', required=True, help='Target domain for DNS lookup')
     group = dnsenum.add_mutually_exclusive_group()
-    group.add_argument('--min', action='store_true',
-                       help='Minimal DNS enumeration (A, AAAA, NS)')
-    group.add_argument('--full', action='store_true',
-                       help='Full DNS enumeration (A, AAAA, MX, etc.)')
-    group.add_argument('-zt','--zonetransfer',action='store_true',
-                       help='Try to use zonetransfering to grab all DNS records')
-    group.add_argument('--asn',action='store_true',
-                       help='Try to use zonetransfering to grab all DNS records')
-    group.add_argument('--whois',action='store_true',
-                       help='Try to use zonetransfering to grab all DNS records')
+    group.add_argument('--min', action='store_true', help='Minimal DNS enumeration (A, AAAA, NS)')
+    group.add_argument('--full', action='store_true', help='Full DNS enumeration (A, AAAA, MX, etc.)')
+    group.add_argument('-zt', '--zonetransfer', action='store_true', help='Try zone transfer to grab all DNS records')
+    group.add_argument('--asn', action='store_true', help='ASN lookup')
+    group.add_argument('--whois', action='store_true', help='WHOIS lookup')
     add_common_args(dnsenum)
-    
-    # ─── Subdomain Enumeration ─────────────────────────────────
-    subenum = subparsers.add_parser('subenum', help='Perform subdomain enumeration')
-    subenum.add_argument('-d', '--domain', required=True,
-                         help='Target domain for DNS lookup')
-    subenum.add_argument('-m','--method', choices=['passive', 'brute'], default='passive')
+
+    subenum = recon_subparsers.add_parser('subenum', help='Perform subdomain enumeration')
+    subenum.add_argument('-d', '--domain', required=True, help='Target domain for DNS lookup')
+    subenum.add_argument('-m', '--method', choices=['passive', 'brute'], default='passive')
     add_common_args(subenum)
 
-    # ─── Traceroute ──────────────────────────────────────
-    traceroute = subparsers.add_parser('traceroute', help='Run traceroute to a target')
-    traceroute.add_argument('-r', '--range', required=True,
-                            help='Target IP or CIDR range')
-    traceroute.add_argument('-m', '--method', choices=['tcp', 'udp', 'icmp'],
-                            help='Traceroute method')
+    traceroute = recon_subparsers.add_parser('traceroute', help='Run traceroute to a target')
+    traceroute.add_argument('-r', '--range', required=True, help='Target IP or CIDR range')
+    traceroute.add_argument('-m', '--method', choices=['tcp', 'udp', 'icmp'], help='Traceroute method')
     add_common_args(traceroute)
-    
-    # ─── Portscan ──────────────────────────────────────
-    portscan = subparsers.add_parser('portscan', help='Run a portscan to a target')
-    portscan.add_argument('-r', '--range', required=True,
-                            help='Target IP or CIDR range')
-    portscan.add_argument('-m', '--method', choices=['tcp', 'udp', 'icmp'],
-                            help='Traceroute method')
-    add_common_args(portscan)
-    return parser
 
+    portscan = recon_subparsers.add_parser('portscan', help='Run a portscan to a target')
+    portscan.add_argument('-r', '--range', required=True, help='Target IP or CIDR range')
+    portscan.add_argument('-m', '--method', choices=['tcp', 'udp', 'icmp'], help='Portscan method')
+    add_common_args(portscan)
+
+    # ------------------- ANALYSIS -------------------
+    analysis_parser = subparsers.add_parser('analysis', help='Analysis tools')
+    analysis_subparsers = analysis_parser.add_subparsers(dest='tool', required=True, help='Analysis tool')
+
+    cvelookup = analysis_subparsers.add_parser('cvelookup', help='Perform CVE lookup on target(s)')
+    cvelookup.add_argument('-r', '--range', required=True, help='Target IP or CIDR range')
+    cvelookup.add_argument('-m', '--method', choices=['tcp', 'udp'], default='tcp',
+                           help='Portscan method used internally')
+    add_common_args(cvelookup)
+
+    return parser
 
 def parse_args():
     parser = get_parser()
