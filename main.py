@@ -1,5 +1,6 @@
 from core.cli import parse_args
 from categories.recon import hostscan,hostprofile,dnsenum,traceroute,subenum,portscan
+from categories.analysis import cvelookup
 from utils import print_welcome_stamp
 import sys
 
@@ -14,8 +15,8 @@ def main():
         
     args = parse_args()
 
-    valid_categories = {"recon"}
-    valid_tools = {"hostscan","hostprofile","dnsenum","traceroute","subenum","portscan"}
+    valid_categories = {"recon","analysis"}
+    valid_tools = {"hostscan","hostprofile","dnsenum","traceroute","subenum","portscan","cvelookup"}
 
     if args.category not in valid_categories:
         print(f"[!] Error: Invalid category '{args.category}'. Valid options: {', '.join(valid_categories)}")
@@ -56,6 +57,13 @@ def main():
                 portscan.run(args)
             except Exception as e:
                 print(f"[!] Unexpected error during scan: {e}")
+    elif args.category == "analysis":
+        if args.tool == "cvelookup":
+            try:
+                cvelookup.run(args)
+            except Exception as e:
+                print(f"[!] Unexpected error during CVE lookup: {e}")
+                
 
 
 
