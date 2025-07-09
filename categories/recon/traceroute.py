@@ -1,6 +1,6 @@
-from .methods.protocol_scans.icmp_scan import ICMPtracert
-from .methods.protocol_scans.udp_scan import UDPtracert
-from .methods.protocol_scans.tcp_scan import Handler
+from .methods_recon.protocol_scans.icmp_scan import ICMPtracert
+from .methods_recon.protocol_scans.udp_scan import UDPtracert
+from .methods_recon.protocol_scans.tcp_scan import Handler
 
 def run(args):
     if not args.method:
