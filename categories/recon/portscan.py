@@ -1,4 +1,4 @@
-from .methods.digital_fingerprinting.find_ports import PortScan
+from .methods_recon.digital_fingerprinting.find_ports import PortScan
 from utils import print_portscan_results
 
 
