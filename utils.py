@@ -68,6 +68,18 @@ def print_welcome_stamp():
     print()
     print(quote)
 
+def print_cve_matches(matches):
+    if not matches:
+        print("No CVEs found.")
+        return
+
+    for match in matches:
+        print(f"[!] CVE FOUND: {match['cve_id']}")
+        print(f"    → Host: {match['ip']}:{match['port']}")
+        print(f"    → Service: {match['service_name']} {match.get('version', '')}")
+        print(f"    → Description: {match['description']}\n")
+
+
 def print_portscan_results(all_results):
     for scan_type, results in all_results.items():
         print(colored(f"\n=== Scan Type: {scan_type.upper()} ===", "cyan", attrs=["bold"]))
@@ -298,6 +310,14 @@ def save_results_csv(results, filename):
         writer.writeheader()
         writer.writerows(results)
     print(f"\n[+] results saved to {filename}")
+
+def save_cve_results_csv(results, filename):
+    keys = results[0].keys()
+
+    with open(filename, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=keys)
+        writer.writeheader()
+        writer.writerows(results)
     
 def save_dns_results_csv(results, filename):
     results = sanitize_results(results)
@@ -362,12 +382,11 @@ def save_subenum_results_csv(results, filename):
     print(f"\n[+] Results saved to {filename}")
         
 def handle_scan_output(results, scantype, filename=None, ftype=None):
-    if scantype not in ("dnsenum", "traceroute"):
+    if scantype not in ("dnsenum", "traceroute","cvelookup"):
         print_summary(results, scantype=scantype)
 
     if ftype and not filename:
         filename = f"scan_output.{ftype}"
-
     if filename and not ftype:
         ext = os.path.splitext(filename)[1].lower()
         if ext == ".csv":
@@ -406,7 +425,14 @@ def handle_scan_output(results, scantype, filename=None, ftype=None):
                     else: 
                         save_results_json_brute(results, filename)
                 else:
-                    print("[!] Unknown results format, cannot save.")           
+                    print("[!] Unknown results format, cannot save.") 
+        elif scantype == "cvelookup":
+            if ftype not in ("csv", "json"):
+                print(f"[!] Unsupported output format: {ftype}")
+            elif ftype == "csv":
+                save_cve_results_csv(results, filename)
+            elif ftype == "json":
+                save_results_json(results, filename)         
         else:
             if ftype not in ("csv", "json"):
                 print(f"[!] Unsupported output format: {ftype}")
