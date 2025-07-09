@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import patch, MagicMock
-from categories.recon.methods.dns_resolve.resolve_lookup import Lookup
+from categories.recon.methods_recon.dns_resolve.resolve_lookup import Lookup
 
 class TestLookup(unittest.TestCase):
 
