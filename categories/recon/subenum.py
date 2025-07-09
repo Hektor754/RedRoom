@@ -1,5 +1,5 @@
 import argparse
-from .methods.dns_resolve.subdomain_resolve import Subdomain_Lookup
+from .methods_recon.dns_resolve.subdomain_resolve import Subdomain_Lookup
 import utils
 
 
