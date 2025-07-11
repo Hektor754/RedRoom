@@ -5,6 +5,7 @@ from utils import print_hostprofile_results
 from .methods_recon.digital_fingerprinting.find_ports import PortScan
 from .methods_recon.digital_fingerprinting.os_detection import OSDetector
 from argparse import Namespace
+import argparse
 
 common_ports = [
     20, 21, 22, 23, 25, 53, 67, 68, 69, 80, 110, 111, 119, 123, 135, 137, 138, 
@@ -34,12 +35,21 @@ def validate_ip_range(ip_range):
         print(f"[!] Error: Invalid IP or IP range '{ip_range}'")
         return False
 
-def enhance_host_information(host, oui_map, timeout):
+def enhance_host_information(host, oui_map, timeout, retries):
     mac = host.get("mac", "").strip().lower()
     if mac and mac != "unknown":
         host["vendor"] = lookup_vendor(mac, oui_map)
 
-    results = PortScan.Scan_method_handler(host["ip"], timeout)
+        if tcp_flags is None:
+            class DummyFlags:
+                stealth = False
+                fin = False
+                ack = False
+                xmas = False
+                aggressive = False
+            tcp_flags = DummyFlags()
+            
+    results = PortScan.Scan_method_handler(host["ip"], tcp_flags, timeout, retries)
     for scan_type, scan_results in results.items():
         for result in scan_results:
             if result["ip"] == host["ip"]:
@@ -80,7 +90,7 @@ def enhance_host_information(host, oui_map, timeout):
 
 
 def run(args):
-    if args.method:
+    if hasattr(args, "method") and args.method:
         print("[!] Invalid input: hostprofile does not require a method.")
         return
     
@@ -110,6 +120,6 @@ def run(args):
         oui_map = {}
 
     for host in active_hosts:
-        enhance_host_information(host, oui_map, args.timeout)
+        enhance_host_information(host, oui_map, args.timeout, args.retries)
 
     print_hostprofile_results(active_hosts)
