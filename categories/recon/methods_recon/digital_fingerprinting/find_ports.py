@@ -155,7 +155,7 @@ class PortScan:
             print(colored(f"[!] Invalid IP range: {ip_range}", "red"))
             return []
 
-        ports = tcp_flags.port if tcp_flags and tcp_flags.port else list(COMMON_PORTS.keys())
+        ports = getattr(tcp_flags, "port", None) or list(COMMON_PORTS.keys())
 
         if tcp_flags:
             if tcp_flags.aggressive:
