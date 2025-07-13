@@ -41,7 +41,7 @@ sudo python3 -m main -c <category> -t <tool> [OPTIONS]
 --format [json | csv]
 --silent
 # TCP Flags (via extra):
---stealth | --fin | --ack | --xmas | --syn | --port | --aggressive
+--stealth | --fin | --ack | --xmas | --syn | --port
 ```
 
 ---
@@ -55,8 +55,6 @@ sudo python3 -m main -c <category> -t <tool> [OPTIONS]
 --format [json | csv]
 --silent
 # No -m/--method allowed
-# TCP Flags (via extra):
---stealth | --fin | --ack | --xmas | --syn | --port | --aggressive
 ```
 
 ---
@@ -132,8 +130,6 @@ sudo python3 -m main -c <category> -t <tool> [OPTIONS]
 --output <file>
 --format [json | csv]
 --silent
-# TCP Flags (via extra):
---stealth | --fin | --ack | --xmas | --syn | --port | --aggressive
 ```
 
 ---
