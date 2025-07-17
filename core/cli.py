@@ -70,6 +70,16 @@ def get_parser():
                            help='Portscan method used internally')
     add_common_args(cvelookup)
 
+    webscanner = analysis_subparsers.add_parser('webscanner', help='Perform a web application scan')
+    webscanner.add_argument('-u', '--url', required=True, help='Target URL for web scanning')
+    webscanner.add_argument(
+        '-m', '--method',
+        choices=['wcrawl', 'form', 'sqlfuzz', 'techd', 'all'],
+        default='all',
+        help='Which part of the web scanner to run (default: all)'
+    )
+    add_common_args(webscanner)
+
     return parser
 
 def parse_args():
