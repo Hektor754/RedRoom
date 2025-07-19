@@ -68,6 +68,56 @@ def print_welcome_stamp():
     print()
     print(quote)
 
+def print_crawl_results(results):
+    print("\nCrawl Summary:")
+    print(f"Pages Crawled: {results.get('pages_crawled', 0)}")
+    print(f"Total Visited URLs: {results.get('total_visited', 0)}")
+    print(f"Unique Found Links: {len(results.get('found_links', []))}")
+    print(f"Skipped Links: {len(results.get('skipped_links', {}))}\n")
+
+    if results.get('found_links'):
+        print("Found Links:")
+        for link in sorted(results['found_links']):
+            print(f"  - {link}")
+    else:
+        print("No links found.")
+
+    if results.get('skipped_links'):
+        print("\nSkipped Links (with reasons):")
+        for link, reason in sorted(results['skipped_links'].items()):
+            print(f"  - {link} [{reason}]")
+    else:
+        print("No links skipped.")
+
+def print_form_results(results):
+    if not results:
+        print("[*] No forms found.")
+        return
+
+    current_url = None
+    for idx, form_data in enumerate(results, 1):
+        url = form_data.get("url", "Unknown URL")
+        if url != current_url:
+            current_url = url
+            print(f"\n[*] Forms found on: {url}")
+
+        action = form_data.get("action") or "No action specified"
+        method = form_data.get("method") or "GET"
+        inputs = form_data.get("inputs", [])
+
+        print(f"\n  Form #{idx}")
+        print(f"    Action: {action}")
+        print(f"    Method: {method.upper()}")
+        print(f"    Inputs:")
+
+        if not inputs:
+            print("      None")
+        else:
+            for input_tag in inputs:
+                input_type = input_tag.get("type", "text")
+                input_name = input_tag.get("name", "")
+                print(f"      - name: '{input_name}', type: '{input_type}'")
+
 def print_cve_matches(matches):
     if not matches:
         print("No CVEs found.")
@@ -380,11 +430,24 @@ def save_subenum_results_csv(results, filename):
         for row in rows:
             writer.writerow(row)
     print(f"\n[+] Results saved to {filename}")
-        
-def handle_scan_output(results, scantype, filename=None, ftype=None):
-    if scantype not in ("dnsenum", "traceroute","cvelookup"):
-        print_summary(results, scantype=scantype)
 
+def save_webcrawl_csv(results, filename):
+    found_links = results.get("found_links", [])
+    skipped_links = results.get("skipped_links", {})
+
+    with open(filename, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["url", "status", "reason"])
+
+        for link in found_links:
+            writer.writerow([link, "found", ""])
+
+        for link, reason in skipped_links.items():
+            writer.writerow([link, "skipped", reason])
+
+    print(f"\n[+]Results saved to {filename}")
+
+def handle_scan_output(results, scantype, filename=None, ftype=None):
     if ftype and not filename:
         filename = f"scan_output.{ftype}"
     if filename and not ftype:
@@ -395,48 +458,44 @@ def handle_scan_output(results, scantype, filename=None, ftype=None):
             ftype = "json"
 
     if filename:
+        if ftype not in ("csv", "json"):
+            print(f"[!] Unsupported output format: {ftype}")
         if scantype == "dnsenum":
             results = sanitize_results(results)
-            if ftype not in ("csv", "json"):
-                print(f"[!] Unsupported output format: {ftype}")
-            elif ftype == "csv":
+            if ftype == "csv":
                 save_dns_results_csv(results, filename)
             elif ftype == "json":
                 save_dns_results_json(results, filename)
         elif scantype == "traceroute":
-            if ftype not in ("csv", "json"):
-                print(f"[!] Unsupported output format: {ftype}")
-            elif ftype == "csv":
+            if ftype == "csv":
                 save_trrt_results_csv(results, filename)
             elif ftype == "json":
                 save_results_json(results, filename) 
         elif scantype == "subenum":
-            if ftype not in ("csv", "json"):
-                print(f"[!] Unsupported output format: {ftype}")
-            else:
-                if isinstance(results, dict) and "all" in results and "per_source" in results:
-                    if ftype == "csv":
-                        save_subenum_results_csv(results, filename)
-                    else:
-                        save_results_json(results, filename)
-                elif isinstance(results, tuple) and len(results) == 2:
-                    if ftype == "csv": 
-                        save_subenum_results_csv_brute(results, filename)
-                    else: 
-                        save_results_json_brute(results, filename)
+            if isinstance(results, dict) and "all" in results and "per_source" in results:
+                if ftype == "csv":
+                    save_subenum_results_csv(results, filename)
                 else:
-                    print("[!] Unknown results format, cannot save.") 
+                    save_results_json(results, filename)
+            elif isinstance(results, tuple) and len(results) == 2:
+                if ftype == "csv": 
+                    save_subenum_results_csv_brute(results, filename)
+                else: 
+                    save_results_json_brute(results, filename)
+            else:
+                print("[!] Unknown results format, cannot save.") 
         elif scantype == "cvelookup":
-            if ftype not in ("csv", "json"):
-                print(f"[!] Unsupported output format: {ftype}")
-            elif ftype == "csv":
+            if ftype == "csv":
                 save_cve_results_csv(results, filename)
             elif ftype == "json":
-                save_results_json(results, filename)         
+                save_results_json(results, filename)     
+        elif scantype == "webcrawler":
+            if ftype == "csv":
+                save_webcrawl_csv(results, filename)
+            elif ftype == "json":
+                save_results_json(results, filename)                 
         else:
-            if ftype not in ("csv", "json"):
-                print(f"[!] Unsupported output format: {ftype}")
-            elif ftype == "csv":
+            if ftype == "csv":
                 save_results_csv(results, filename)
             elif ftype == "json":
                 save_results_json(results, filename)
