@@ -78,6 +78,10 @@ def get_parser():
         default='all',
         help='Which part of the web scanner to run (default: all)'
     )
+    webscanner.add_argument(
+        '-F', '--file', type=str, default=None,
+        help='Optional input file (only used by "form" or "sqlfuzz" methods)'
+    )
     add_common_args(webscanner)
 
     return parser
