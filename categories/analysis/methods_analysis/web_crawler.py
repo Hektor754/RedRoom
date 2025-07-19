@@ -44,7 +44,7 @@ def create_session_with_retries(retries=3, backoff_factor=0.3):
     session.mount("https://", adapter)
     return session
 
-def run(base_url, max_depth=2, timeout=5.0, retries=3, allowed_domains=None, 
+def run(base_url, timeout, retries, max_depth=2, allowed_domains=None, 
         delay=1.0, max_pages=100, user_agent=None):
 
     if allowed_domains is None:
@@ -168,8 +168,6 @@ def run(base_url, max_depth=2, timeout=5.0, retries=3, allowed_domains=None,
                 to_visit.append((clean_link, depth + 1))
                 found_links.add(clean_link)
                 links_found_on_page += 1
-
-        logger.info(f"Found {links_found_on_page} new links on {current_url}")
 
     logger.info(f"Crawling complete. Visited {pages_crawled} pages, found {len(found_links)} links")
 
