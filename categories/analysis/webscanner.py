@@ -38,6 +38,7 @@ def run(args):
         print("[*] Running Form Analyzer...")
         results['forms'] = form_analyser.run(url, args.file, args.timeout, args.retries)
         print_form_results(results['forms'])
+        handle_scan_output(results['forms'], scantype="formanalyser", filename=args.output, ftype=args.format)
     if args.method in ['sqlfuzz', 'all']:
         print("[*] Running SQL/XSS Fuzzer...")
         results['fuzz'] = sql_fuzzer.run(url)
