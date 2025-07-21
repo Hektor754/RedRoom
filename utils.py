@@ -447,6 +447,25 @@ def save_webcrawl_csv(results, filename):
 
     print(f"\n[+]Results saved to {filename}")
 
+def save_form_results_csv(results, filename):
+    with open(filename, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["url", "form_index", "method", "action", "input_name", "input_type"])
+
+        for form in results:
+            url = form.get("url", "")
+            index = form.get("form_index", "")
+            method = form.get("method", "GET")
+            action = form.get("action", "")
+            inputs = form.get("inputs", [])
+
+            for input_tag in inputs:
+                input_name = input_tag.get("name", "")
+                input_type = input_tag.get("type", "text")
+                writer.writerow([url, index, method, action, input_name, input_type])
+    
+    print(f"\n[+] Form analysis results saved to {filename}")
+
 def handle_scan_output(results, scantype, filename=None, ftype=None):
     if ftype and not filename:
         filename = f"scan_output.{ftype}"
@@ -493,7 +512,12 @@ def handle_scan_output(results, scantype, filename=None, ftype=None):
             if ftype == "csv":
                 save_webcrawl_csv(results, filename)
             elif ftype == "json":
-                save_results_json(results, filename)                 
+                save_results_json(results, filename) 
+        elif scantype == "formanalyser":
+            if ftype == "csv":
+                save_form_results_csv(results, filename)
+            elif ftype == "json":
+                save_results_json(results, filename)                           
         else:
             if ftype == "csv":
                 save_results_csv(results, filename)
