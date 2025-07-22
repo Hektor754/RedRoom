@@ -68,6 +68,37 @@ def print_welcome_stamp():
     print()
     print(quote)
 
+def print_sql_fuzzer_results(results):
+    if not results:
+        print("[!] No results to display.")
+        return
+
+    print("\n" + "="*80)
+    print(colored("SQL Fuzzer Results", "cyan", attrs=["bold"]))
+    print("="*80)
+
+    for entry in results:
+        print(colored(f"Target URL: {entry.get('target_url')}", "yellow"))
+        print(f"  Field     : {entry.get('field')}")
+        print(f"  Payload   : {entry.get('payload')}")
+
+        status = entry.get("status_code", "N/A")
+        print(f"  Status    : {status}")
+
+        resp_time = entry.get("response_time", "-")
+        print(f"  Time      : {resp_time} seconds")
+
+        if "error" in entry:
+            print(colored(f"  Error     : {entry['error']}", "red"))
+        else:
+            indicator = entry.get("indicator", "none")
+            if indicator == "error":
+                print(colored("  Indicator : SQL Error Detected!", "red", attrs=["bold"]))
+            else:
+                print("  Indicator : No obvious signs")
+
+        print("-" * 80)
+
 def print_crawl_results(results):
     print("\nCrawl Summary:")
     print(f"Pages Crawled: {results.get('pages_crawled', 0)}")
@@ -97,26 +128,119 @@ def print_form_results(results):
     current_url = None
     for idx, form_data in enumerate(results, 1):
         url = form_data.get("url", "Unknown URL")
+        page_title = form_data.get("page_title", "No title")
+
         if url != current_url:
             current_url = url
-            print(f"\n[*] Forms found on: {url}")
+            print(f"\n{'='*80}")
+            print(f"[*] Forms found on: {url}")
+            print(f"[*] Page title: {page_title}")
+            print(f"{'='*80}")
 
+        form_index = form_data.get("form_index", 0)
         action = form_data.get("action") or "No action specified"
-        method = form_data.get("method") or "GET"
-        inputs = form_data.get("inputs", [])
+        method = form_data.get("method", "GET").upper()
+        form_type = form_data.get("form_type", "unknown")
+        complexity_score = form_data.get("complexity_score", 0)
+        uses_https = form_data.get("uses_https", False)
+        security_features = form_data.get("security_features", [])
+        total_fields = form_data.get("total_fields", 0)
 
-        print(f"\n  Form #{idx}")
+        print(f"\n  FORM #{form_index + 1}")
         print(f"    Action: {action}")
-        print(f"    Method: {method.upper()}")
-        print(f"    Inputs:")
+        print(f"    Method: {method}")
+        print(f"    Type: {form_type.upper()}")
+        print(f"    Total Fields: {total_fields}")
+        print(f"    Complexity Score: {complexity_score}")
+        print(f"    Uses HTTPS: {'Yes' if uses_https else 'No'}")
+        
+        if security_features:
+            print(f"    Security Features: {', '.join(security_features)}")
 
-        if not inputs:
-            print("      None")
-        else:
+        # Input fields
+        inputs = form_data.get("inputs", [])
+        if inputs:
+            print(f"\n    INPUT FIELDS ({len(inputs)}):")
             for input_tag in inputs:
+                name = input_tag.get("name", "unnamed")
                 input_type = input_tag.get("type", "text")
-                input_name = input_tag.get("name", "")
-                print(f"      - name: '{input_name}', type: '{input_type}'")
+                placeholder = input_tag.get("placeholder", "")
+                required = "[REQUIRED]" if input_tag.get("required") else ""
+                value = input_tag.get("value", "")
+                
+                print(f"      - Name: '{name}', Type: '{input_type}' {required}")
+                if placeholder:
+                    print(f"        Placeholder: '{placeholder}'")
+                if value:
+                    print(f"        Default Value: '{value}'")
+
+        selects = form_data.get("selects", [])
+        if selects:
+            print(f"\n    SELECT DROPDOWNS ({len(selects)}):")
+            for select_tag in selects:
+                name = select_tag.get("name", "unnamed")
+                option_count = select_tag.get("option_count", 0)
+                multiple = select_tag.get("multiple", False)
+                required = "[REQUIRED]" if select_tag.get("required") else ""
+                
+                print(f"      - Name: '{name}', Options: {option_count} {required}")
+                if multiple:
+                    print(f"        Multiple selections allowed")
+
+                options = select_tag.get("options", [])[:3]
+                for option in options:
+                    selected = "[*]" if option.get("selected") else "[ ]"
+                    print(f"        {selected} {option.get('text', '')} (value: {option.get('value', '')})")
+                if select_tag.get("option_count", 0) > 3:
+                    print(f"        ... and {select_tag.get('option_count') - 3} more options")
+
+        textareas = form_data.get("textareas", [])
+        if textareas:
+            print(f"\n    TEXTAREA FIELDS ({len(textareas)}):")
+            for textarea_tag in textareas:
+                name = textarea_tag.get("name", "unnamed")
+                placeholder = textarea_tag.get("placeholder", "")
+                required = "[REQUIRED]" if textarea_tag.get("required") else ""
+                rows = textarea_tag.get("rows", "")
+                cols = textarea_tag.get("cols", "")
+                
+                print(f"      - Name: '{name}' {required}")
+                if rows or cols:
+                    print(f"        Size: {rows}x{cols}")
+                if placeholder:
+                    print(f"        Placeholder: '{placeholder}'")
+
+        # Buttons
+        buttons = form_data.get("buttons", [])
+        if buttons:
+            print(f"\n    BUTTONS ({len(buttons)}):")
+            for button_tag in buttons:
+                name = button_tag.get("name", "unnamed")
+                button_type = button_tag.get("type", "button")
+                text = button_tag.get("text", "")
+                value = button_tag.get("value", "")
+                
+                print(f"      - Type: '{button_type}', Name: '{name}'")
+                if text:
+                    print(f"        Text: '{text}'")
+                elif value:
+                    print(f"        Value: '{value}'")
+
+        print(f"\n    {'-'*50}")
+
+def print_statistics(stats):
+    """Print analysis statistics"""
+    print(f"\n{'='*50}")
+    print(f"ANALYSIS STATISTICS")
+    print(f"{'='*50}")
+    print(f"Total URLs processed: {stats.get('total_urls', 0)}")
+    print(f"Successful requests: {stats.get('successful_requests', 0)}")
+    print(f"Failed requests: {stats.get('failed_requests', 0)}")
+    print(f"Total forms found: {stats.get('forms_found', 0)}")
+    
+    if stats.get('total_urls', 0) > 0:
+        success_rate = (stats.get('successful_requests', 0) / stats.get('total_urls', 1)) * 100
+        print(f"Success rate: {success_rate:.1f}%")
 
 def print_cve_matches(matches):
     if not matches:
@@ -447,24 +571,90 @@ def save_webcrawl_csv(results, filename):
 
     print(f"\n[+]Results saved to {filename}")
 
+
+def save_sql_results_csv(results, filename):
+    fieldnames = ["target_url", "field", "payload", "status_code", "response_time", "indicator", "error"]
+    
+    with open(filename, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        
+        for entry in results:
+            writer.writerow({
+                "target_url": entry.get("target_url", ""),
+                "field": entry.get("field", ""),
+                "payload": entry.get("payload", ""),
+                "status_code": entry.get("status_code", ""),
+                "response_time": entry.get("response_time", ""),
+                "indicator": entry.get("indicator", ""),
+                "error": entry.get("error", "")
+            })
+
+    print(f"\n[+] Results saved to {filename}")
+
+
 def save_form_results_csv(results, filename):
     with open(filename, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["url", "form_index", "method", "action", "input_name", "input_type"])
-
+        # Enhanced header with new fields
+        writer.writerow([
+            "url", "page_title", "form_index", "method", "action", "form_type", 
+            "complexity_score", "security_features", "element_type", "element_name", 
+            "element_value", "element_required", "element_placeholder", "additional_info"
+        ])
+        
         for form in results:
             url = form.get("url", "")
+            page_title = form.get("page_title", "")
             index = form.get("form_index", "")
             method = form.get("method", "GET")
             action = form.get("action", "")
+            form_type = form.get("form_type", "unknown")
+            complexity_score = form.get("complexity_score", 0)
+            security_features = ", ".join(form.get("security_features", []))
+            
+            # Write input elements
             inputs = form.get("inputs", [])
-
             for input_tag in inputs:
-                input_name = input_tag.get("name", "")
-                input_type = input_tag.get("type", "text")
-                writer.writerow([url, index, method, action, input_name, input_type])
+                writer.writerow([
+                    url, page_title, index, method, action, form_type, complexity_score,
+                    security_features, "input", input_tag.get("name", ""),
+                    input_tag.get("value", ""), input_tag.get("required", False),
+                    input_tag.get("placeholder", ""), f"type: {input_tag.get('type', 'text')}"
+                ])
+            
+            # Write select elements
+            selects = form.get("selects", [])
+            for select_tag in selects:
+                options_info = f"options: {select_tag.get('option_count', 0)}"
+                writer.writerow([
+                    url, page_title, index, method, action, form_type, complexity_score,
+                    security_features, "select", select_tag.get("name", ""), "",
+                    select_tag.get("required", False), "", options_info
+                ])
+            
+            # Write textarea elements
+            textareas = form.get("textareas", [])
+            for textarea_tag in textareas:
+                size_info = f"rows: {textarea_tag.get('rows', '')}, cols: {textarea_tag.get('cols', '')}"
+                writer.writerow([
+                    url, page_title, index, method, action, form_type, complexity_score,
+                    security_features, "textarea", textarea_tag.get("name", ""), 
+                    textarea_tag.get("content", ""), textarea_tag.get("required", False),
+                    textarea_tag.get("placeholder", ""), size_info
+                ])
+            
+            # Write button elements
+            buttons = form.get("buttons", [])
+            for button_tag in buttons:
+                button_info = f"type: {button_tag.get('type', 'button')}"
+                writer.writerow([
+                    url, page_title, index, method, action, form_type, complexity_score,
+                    security_features, "button", button_tag.get("name", ""),
+                    button_tag.get("value", ""), False, "", button_info
+                ])
     
-    print(f"\n[+] Form analysis results saved to {filename}")
+    print(f"\n[+] Enhanced form analysis results saved to {filename}")
 
 def handle_scan_output(results, scantype, filename=None, ftype=None):
     if ftype and not filename:
@@ -517,7 +707,12 @@ def handle_scan_output(results, scantype, filename=None, ftype=None):
             if ftype == "csv":
                 save_form_results_csv(results, filename)
             elif ftype == "json":
-                save_results_json(results, filename)                           
+                save_results_json(results, filename)   
+        elif scantype == "sqlfuzzer":
+            if ftype == "csv":
+                save_sql_results_csv(results, filename)
+            elif ftype == "json":
+                save_results_json(results, filename)                                
         else:
             if ftype == "csv":
                 save_results_csv(results, filename)
