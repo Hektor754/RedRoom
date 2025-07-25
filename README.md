@@ -134,6 +134,20 @@ sudo python3 -m main -c <category> -t <tool> [OPTIONS]
 
 ---
 
+## 🌐 'Web Scanner'
+```
+-c analysis -t webscanner -u <url>
+-m [wcrawl | form | sqlfuzz | techd | all]
+-F <input_file>            # Optional, used only for 'form' or 'sqlfuzz' methods
+--timeout <float>
+--retries <int>
+--output <file>
+--format [json | csv]
+--silent
+```
+
+---
+
 ## ⚙️ TCP Scan Flags (via `extra` args)
 Applies to `hostscan`, `portscan`, `hostprofile`, and `cvelookup`:
 ```
