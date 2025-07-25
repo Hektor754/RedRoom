@@ -134,7 +134,7 @@ sudo python3 -m main -c <category> -t <tool> [OPTIONS]
 
 ---
 
-### 🌐 `web scanner`
+### 🌐 `analysis web scanner`
 ```
 -c analysis -t webscanner -u <url>
 -m [wcrawl | form | sqlfuzz | techd | all]
