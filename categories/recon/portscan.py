@@ -1,5 +1,5 @@
 from .methods_recon.digital_fingerprinting.find_ports import PortScan
-from utils import print_portscan_results
+from Essentials.utils import print_portscan_results
 
 
 def run(args):
