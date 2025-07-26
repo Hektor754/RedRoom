@@ -3,7 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from ipaddress import ip_network
 from termcolor import colored
 from colorama import init
-from utils import handle_scan_output,resolve_hostname
+from Essentials.utils import handle_scan_output,resolve_hostname
 import time
 
 init()
