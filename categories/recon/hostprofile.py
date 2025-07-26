@@ -1,7 +1,7 @@
 import ipaddress
 from .methods_recon.digital_fingerprinting.auto_host import auto_hostdiscovery
 from .methods_recon.digital_fingerprinting.vendor_lookup import load_oui, lookup_vendor
-from utils import print_hostprofile_results
+from Essentials.utils import print_hostprofile_results
 from .methods_recon.digital_fingerprinting.find_ports import PortScan
 from .methods_recon.digital_fingerprinting.os_detection import OSDetector
 from argparse import Namespace
@@ -102,7 +102,7 @@ def run(args):
         return
 
     try:
-        oui_map = load_oui("oui.txt")
+        oui_map = load_oui("Essentials/oui.txt")
     except Exception as e:
         print(f"[!] Failed to load OUI database: {str(e)}")
         oui_map = {}
