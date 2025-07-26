@@ -1,6 +1,6 @@
 import argparse
 from .methods_recon.dns_resolve.subdomain_resolve import Subdomain_Lookup
-import utils
+import Essentials.utils as utils
 
 
 def parse_dns_flags(extra_args):
@@ -57,7 +57,7 @@ def run(args):
         utils.handle_scan_output(results,scantype="subenum",filename=args.output,ftype=args.format)
         
     elif method == "brute": 
-        wordlist = "subdomains-top1million-5000.txt"
+        wordlist = "Essentials/subdomains-top1million-5000.txt"
         subdom, attempts = Subdomain_Lookup.bruteforce(domain, wordlist)
         results = (subdom, attempts)
         utils.print_sub_brute_results(domain,results, attempts)
