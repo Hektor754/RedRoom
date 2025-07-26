@@ -4,7 +4,7 @@ from categories.analysis.methods_analysis import (
     xss_sql_fuzzer as sql_fuzzer,
     tech_detector as tech_detection
 )
-from utils import print_crawl_results,handle_scan_output,print_form_results,print_sql_fuzzer_results
+from Essentials.utils import print_crawl_results,handle_scan_output,print_form_results,print_sql_fuzzer_results
 
 valid_methods = ['wcrawl', 'form', 'sqlfuzz', 'techd', 'all']
 
