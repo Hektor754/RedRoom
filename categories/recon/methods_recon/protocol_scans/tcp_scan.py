@@ -2,7 +2,7 @@ from scapy.all import IP, TCP, ICMP, send, sr1
 from termcolor import colored
 from colorama import init
 from concurrent.futures import ThreadPoolExecutor
-from utils import handle_scan_output, resolve_hostname
+from Essentials.utils import handle_scan_output, resolve_hostname
 import os
 import time
 import argparse
