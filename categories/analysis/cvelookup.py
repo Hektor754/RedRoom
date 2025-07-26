@@ -1,6 +1,6 @@
 from categories.recon.methods_recon.digital_fingerprinting.find_ports import PortScan
 from categories.analysis.methods_analysis.cve_scan import CVE_Scan
-from utils import print_cve_matches,handle_scan_output
+from Essentials.utils import print_cve_matches,handle_scan_output
 
 def run(args):
     scantype = "cvelookup"
