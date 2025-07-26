@@ -13,7 +13,7 @@ class CVE_Scan:
             print("[!] No valid services found to match against CVEs.")
             return
 
-        raw_cve_db = CVE_Scan.load_cve_database("nvdcve-1.1-recent.json")
+        raw_cve_db = CVE_Scan.load_cve_database("Essentials/nvdcve-1.1-recent.json")
         cve_database = CVE_Scan.parse_nvd_cve_data(raw_cve_db)
         if not cve_database:
             print("[!] No CVE entries loaded from database.")
