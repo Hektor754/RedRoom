@@ -4,7 +4,11 @@ from categories.analysis.methods_analysis import (
     xss_sql_fuzzer as sql_fuzzer,
     tech_detector as tech_detection
 )
+<<<<<<< HEAD
 from Essentials.utils import print_crawl_results,handle_scan_output,print_form_results,print_sql_fuzzer_results
+=======
+from utils import print_crawl_results,handle_scan_output,print_form_results,print_sql_fuzzer_results,print_tech_detection
+>>>>>>> 84ff42a2658738d5e9df14162edd9274c7bf0c94
 
 valid_methods = ['wcrawl', 'form', 'sqlfuzz', 'techd', 'all']
 
@@ -47,4 +51,6 @@ def run(args):
     if args.method in ['techd', 'all']:
         print("[*] Running Technology Detection...")
         results['tech'] = tech_detection.run(url)
+        print_tech_detection_results(results['techd])
+        handle_scan_output(results['techd'])
 
