@@ -68,6 +68,31 @@ def print_welcome_stamp():
     print()
     print(quote)
 
+def print_tech_results(results):
+    if not results:
+        print("[!] No technologies detected.")
+        return
+
+    print("\n" + "=" * 80)
+    print("TECHNOLOGY DETECTION RESULTS")
+    print("=" * 80)
+
+    for idx, item in enumerate(results, 1):
+        print(f"\n[{idx}] URL: {item.get('url', 'N/A')}")
+        print(f"     Title       : {item.get('page_title', 'No title')}")
+        print(f"     Server      : {item.get('server', 'Unknown') or 'Unknown'}")
+        print(f"     Powered By  : {item.get('powered_by', 'Unknown') or 'Unknown'}")
+        
+        techs = item.get('technologies', [])
+        if techs:
+            print(f"     Technologies: {', '.join(sorted(techs))}")
+        else:
+            print(f"     Technologies: None detected")
+
+    print("\n" + "=" * 80)
+    print(f"Total URLs analyzed: {len(results)}")
+    print("=" * 80)
+
 def print_sql_fuzzer_results(results):
     if not results:
         print("[!] No SQL injection findings.")
@@ -657,6 +682,20 @@ def save_form_results_csv(results, filename):
     
     print(f"\n[+] Enhanced form analysis results saved to {filename}")
 
+def save_tech_results_csv(results, filename):
+    with open(filename, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["url", "page_title", "server", "powered_by", "technologies"])
+        for item in results:
+            writer.writerow([
+                item.get("url", ""),
+                item.get("page_title", ""),
+                item.get("server", ""),
+                item.get("powered_by", ""),
+                ", ".join(item.get("technologies", []))
+            ])
+    print(f"\n[+] Technology detection results saved to {filename}")
+
 def handle_scan_output(results, scantype, filename=None, ftype=None):
     if ftype and not filename:
         filename = f"scan_output.{ftype}"
@@ -713,7 +752,12 @@ def handle_scan_output(results, scantype, filename=None, ftype=None):
             if ftype == "csv":
                 save_sql_results_csv(results, filename)
             elif ftype == "json":
-                save_results_json(results, filename)                                
+                save_results_json(results, filename)
+        elif scantype == "techdetection":
+            if ftype == "csv":
+                save_tech_results_csv(results, filename)
+            elif ftype == "json":
+                save_results_json(results, filename)                                  
         else:
             if ftype == "csv":
                 save_results_csv(results, filename)
