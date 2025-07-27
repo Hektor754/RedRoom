@@ -1,11 +1,6 @@
-from categories.analysis.methods_analysis import (
-    form_analyzer as form_analyzer,
-    web_crawler as webcrawler,
-    xss_sql_fuzzer as sql_fuzzer,
-    tech_detector as tech_detection
-)
-from Essentials.utils import print_crawl_results,handle_scan_output,print_form_results,print_sql_fuzzer_results
-from Essentials.utils import print_crawl_results,handle_scan_output,print_form_results,print_sql_fuzzer_results
+from categories.analysis.methods_analysis import form_analyzer,web_crawler,xss_sql_fuzzer,tech_detection
+from Essentials.utils import print_crawl_results,handle_scan_output,print_form_results,print_sql_fuzzer_results,print_tech_results
+
 
 valid_methods = ['wcrawl', 'form', 'sqlfuzz', 'techd', 'all']
 
@@ -27,7 +22,7 @@ def run(args):
             args.timeout = 5.0
         if not args.retries:
             args.retries = 3
-        results['crawler'] = webcrawler.run(url, args.timeout, args.retries)
+        results['crawler'] = web_crawler.run(url, args.timeout, args.retries)
         print_crawl_results(results['crawler'])
         handle_scan_output(results['crawler'], scantype="webcrawler", filename=args.output, ftype=args.format)
         
@@ -42,9 +37,11 @@ def run(args):
         handle_scan_output(results['forms'], scantype="formanalyser", filename=args.output, ftype=args.format)
     if args.method in ['sqlfuzz', 'all']:
         print("[*] Running SQL/XSS Fuzzer...")
-        results['fuzz'] = sql_fuzzer.run(url)
+        results['fuzz'] = xss_sql_fuzzer.run(url)
         print_sql_fuzzer_results(results['fuzz'])
         handle_scan_output(results['fuzz'], scantype="sqlfuzzer", filename=args.output, ftype=args.format)
     if args.method in ['techd', 'all']:
         print("[*] Running Technology Detection...")
         results['tech'] = tech_detection.run(url)
+        print_tech_results(results['tech'])
+        handle_scan_output(results['tech'], scantype="techdetection", filename=args.output, ftype=args.format)
