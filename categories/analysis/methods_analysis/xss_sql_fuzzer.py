@@ -8,7 +8,7 @@ from urllib3.util.retry import Retry
 import requests
 from urllib.parse import urljoin
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import form_analyzer
+from categories.analysis.methods_analysis import form_analyzer
 
 SQL_PAYLOADS = {
     "error_based": [
