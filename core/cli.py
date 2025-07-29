@@ -84,6 +84,20 @@ def get_parser():
     )
     add_common_args(webscanner)
 
+    misconfdetector = analysis_subparsers.add_parser('misconfdetector', help='Perform a misconfig detection scan')
+    misconfdetector.add_argument('-r', '--range', required=True, help='Target IP')
+    misconfdetector.add_argument(
+        '-m', '--method',
+        choices=['confc', 'defcc', 'all'],
+        default='all',
+        help='Which part of the web scanner to run (default: all)'
+    )
+    misconfdetector.add_argument(
+        '-F', '--file', type=str, default=None,
+        help='Optional input file (only used by "form" or "sqlfuzz" methods)'
+    )
+    add_common_args(misconfdetector)    
+
     return parser
 
 def parse_args():
