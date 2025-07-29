@@ -16,7 +16,7 @@ def main():
     args = parse_args()
 
     valid_categories = {"recon","analysis"}
-    valid_tools = {"hostscan","hostprofile","dnsenum","traceroute","subenum","portscan","cvelookup"}
+    valid_tools = {"hostscan","hostprofile","dnsenum","traceroute","subenum","portscan","cvelookup","webscanner"}
 
     if args.category not in valid_categories:
         print(f"[!] Error: Invalid category '{args.category}'. Valid options: {', '.join(valid_categories)}")
