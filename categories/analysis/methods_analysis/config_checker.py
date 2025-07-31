@@ -1,31 +1,10 @@
 from categories.recon.methods_recon.digital_fingerprinting.find_ports import PortScan
-from ftplib import FTP,error_perm
+from ftplib import FTP,error_perm, all_errors
 import argparse
 import getpass
 import io
 
 class Configuration_checker:
-
-    @staticmethod
-    def get_credentials():
-        parser = argparse.ArgumentParser(description='FTP misconfiguration scanner')
-        parser.add_argument('-u', '--username', help='FTP username')
-        parser.add_argument('-p', '--password', help='FTP password')
-        args = parser.parse_args()
-
-        username = args.username
-        password = args.password
-
-        if not username:
-            username = input("Enter FTP username (leave blank for anonymous): ").strip()
-            if not username:
-                username = 'anonymous'
-
-        if not password and username.lower() != 'anonymous':
-            password = getpass.getpass(f"Enter password for {username}: ")
-
-        return username, password
-    
     @staticmethod
     def run(ip, timeout, retries):
         misconfigs = {}
@@ -44,6 +23,15 @@ class Configuration_checker:
 
         service_misconfigs = misconfigs[service][category]
         service_misconfigs = Configuration_checker.anonymous_auth_msconf(service_misconfigs, ip, port, timeout)
+
+        category = "Weak Authentication"
+        if category not in misconfigs[service]:
+            misconfigs[service][category] = []
+        
+        service_misconfigs = misconfigs[service][category]
+        service_misconfigs = Configuration_checker.weak_authentication(service_misconfigs, ip, port, timeout)
+        
+        return misconfigs
 
     @staticmethod
     def anonymous_auth_msconf(service_misconfigs, ip, port, timeout):
@@ -118,54 +106,34 @@ class Configuration_checker:
                     pass
             ftp.quit()
         except error_perm:
-            pass
+            pass     
+        return service_misconfigs
 
-        ftp = FTP()
-        try:
-            ftp.connect(host=ip, port=port, timeout=timeout)
-            ftp.login(user='ftp', passwd='anonymous')
-            service_misconfigs.append("Anonymous authentication allowed with username 'ftp'")
-            ftp.quit()
-        except error_perm:
-            pass
+    @staticmethod
+    def weak_authentication(service_misconfigs, ip, port, timeout):
+        for username, password in COMMON_CREDENTIALS:
+            try:
+                ftp = FTP()
+                ftp.connect(ip, port, timeout=timeout)
+                ftp.login(user=username, passwd=password)
+                service_misconfigs.append(f"Allowed Login with weak credentials: {username}, {password}")
+                ftp.quit()
+            except error_perm:
+                continue
+            except all_errors as e:
+                continue
+        return service_misconfigs
 
-        usr, passwd = Configuration_checker.get_credentials()
-
-        try:
-            ftp = FTP()
-            ftp.connect(host=ip, port=port, timeout=timeout)
-            ftp.login(usr, passwd)
-
-            for dir in SENSITIVE_DIRS:
-                try:
-                    ftp.cwd(dir)
-                    service_misconfigs.append(f"Access granted to sensitive directory: {dir}")
-
-                    try:
-                        listed_files = ftp.nlst()
-                    except:
-                        listed_files = []
-
-                    for file in listed_files:
-                        try:
-                            ftp.retrbinary(f"RETR {file}", lambda _: None)
-                            service_misconfigs.append(f"Download allowed for listed file: {dir}{file}")
-                        except error_perm:
-                            continue
-
-                    for file in SENSITIVE_FILES:
-                        try:
-                            ftp.retrbinary(f"RETR {file}", lambda _: None)
-                            service_misconfigs.append(f"Download allowed for sensitive file: {dir}{file}")
-                        except error_perm:
-                            continue
-
-                except error_perm:
-                    continue
-
-            ftp.quit()
-        except Exception as e:
-            print(f"[!] Failed to log in or scan FTP with provided credentials: {e}")
+COMMON_CREDENTIALS = [
+    ("anonymous", ""),
+    ("ftp", "ftp"),
+    ("admin", "admin"),
+    ("user", "password"),
+    ("test", "test"),
+    ("root", "root"),
+    ("guest", "guest"),
+    ("anonymous", "anonymous@domain.com")
+]
 
 SYSTEM_DIRS = [
     '/etc/',
