@@ -45,5 +45,5 @@ def run(args):
         results['tech'] = tech_detection.run(url)
         print_tech_results(results['tech'])
         handle_scan_output(results['tech'], scantype="techdetection", filename=args.output, ftype=args.format)
-        print_tech_detection_results(results['techd])
+        print_tech_results(results['techd'])
         handle_scan_output(results['techd'])
