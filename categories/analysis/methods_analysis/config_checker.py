@@ -1,8 +1,9 @@
 from categories.recon.methods_recon.digital_fingerprinting.find_ports import PortScan
-from ftplib import FTP,error_perm, all_errors
+from ftplib import FTP,error_perm, all_errors, FTP_TLS
 import argparse
 import getpass
 import io
+from time import sleep
 
 class Configuration_checker:
     @staticmethod
@@ -30,6 +31,16 @@ class Configuration_checker:
         
         service_misconfigs = misconfigs[service][category]
         service_misconfigs = Configuration_checker.weak_authentication(service_misconfigs, ip, port, timeout)
+        service_misconfigs = Configuration_checker.no_account_lockout_policy(service_misconfigs, ip, port, timeout)
+        service_misconfigs = Configuration_checker.plaintext_authentication_missing_mfa(service_misconfigs, ip, port, timeout) 
+
+        category = "Encryption and Data Issues"
+        if category not in misconfigs[service]:
+            misconfigs[service][category] = []
+        
+        service_misconfigs = misconfigs[service][category]
+        service_misconfigs = Configuration_checker.check_ftp_encryption(service_misconfigs, ip, port, timeout)
+        service_misconfigs = Configuration_checker.unencrypted_file_transfer(service_misconfigs, ip, port, timeout)
         
         return misconfigs
 
@@ -109,6 +120,7 @@ class Configuration_checker:
             pass     
         return service_misconfigs
 
+
     @staticmethod
     def weak_authentication(service_misconfigs, ip, port, timeout):
         for username, password in COMMON_CREDENTIALS:
@@ -116,14 +128,127 @@ class Configuration_checker:
                 ftp = FTP()
                 ftp.connect(ip, port, timeout=timeout)
                 ftp.login(user=username, passwd=password)
-                service_misconfigs.append(f"Allowed Login with weak credentials: {username}, {password}")
+
+                msg = f"Allowed Login with weak credentials: {username}, {password}"
+                if (username, password) in DEFAULT_CREDENTIALS:
+                    msg += " — Default credentials still in use"
+
+                service_misconfigs.append(msg)
                 ftp.quit()
             except error_perm:
                 continue
-            except all_errors as e:
+            except all_errors:
                 continue
+            finally:
+                sleep(DELAY)
+
+        test_user = "admin"
+        weak_passwords = ["123456", "password", "admin", "ftp", "test", "root"]
+
+        for pwd in weak_passwords:
+            try:
+                ftp = FTP()
+                ftp.connect(ip, port, timeout=timeout)
+                ftp.login(user=test_user, passwd=pwd)
+                service_misconfigs.append(f"Allowed weak password '{pwd}' for user '{test_user}' — password complexity missing")
+                ftp.quit()
+                break
+            except error_perm:
+                continue
+            except all_errors:
+                break
+            finally:
+                sleep(DELAY)
+
         return service_misconfigs
 
+    @staticmethod
+    def plaintext_authentication_missing_mfa(service_misconfigs, ip, port, timeout):
+        try:
+            ftp = FTP()
+            ftp.connect(ip, port, timeout=timeout)
+            ftp.quit()
+
+            service_misconfigs.append(f"FTP service on {ip}:{port} uses plaintext authentication (unencrypted login over FTP)")
+            service_misconfigs.append(f"FTP service at {ip}:{port} does not enforce multi-factor authentication (MFA)")
+        except Exception as e:
+            pass
+
+        return service_misconfigs
+
+    @staticmethod
+    def no_account_lockout_policy(service_misconfigs, ip, port, timeout, max_attempts=10):
+        test_username = "nonexistent_user"
+        test_password = "wrong_password"
+
+        consecutive_failures = 0
+
+        for attempt in range(max_attempts):
+            try:
+                ftp = FTP()
+                ftp.connect(ip, port, timeout=timeout)
+                ftp.login(user=test_username, passwd=test_password)
+            except error_perm as e:
+                consecutive_failures += 1
+            except all_errors:
+                break
+            finally:
+                try:
+                    ftp.quit()
+                except:
+                    pass
+                sleep(DELAY)
+
+        if consecutive_failures == max_attempts:
+            service_misconfigs.append(f"No account lockout policy detected after {max_attempts} failed login attempts")
+
+        return service_misconfigs
+
+    @staticmethod
+    def check_ftp_encryption(service_misconfigs, ip, port, timeout):
+        try:
+            ftps = FTP_TLS()
+            ftps.connect(ip, port, timeout=timeout)
+        except Exception:
+            service_misconfigs.append(f"Failed to connect to FTP server on port {port} — encryption check skipped")
+            return service_misconfigs
+
+        try:
+            ftps.auth()
+        except Exception:
+            service_misconfigs.append(f"Control channel NOT encrypted on port {port} (AUTH TLS missing)")
+
+        try:
+            ftps.prot_p()
+        except Exception:
+            service_misconfigs.append(f"Data channel NOT encrypted on port {port} (PROT P missing)")
+
+        try:
+            ftps.login('anonymous', 'anonymous@example.com')
+            ftps.quit()
+        except Exception:
+            service_misconfigs.append("FTP server does NOT support encrypted connections — data sent in plaintext")
+            service_misconfigs.append("FTP server does NOT support FTPS (FTP over SSL/TLS) — no encryption available")
+
+        return service_misconfigs
+
+    @staticmethod
+    def unencrypted_file_transfer(service_misconfigs, ip, port, timeout):
+        if port != 21:
+            return service_misconfigs
+        
+        try:
+            ftp = FTP()
+            ftp.connect(ip, port, timeout=timeout)
+            ftp.login()
+            service_misconfigs.append("FTP server on port 21 allows unencrypted file transfers (plaintext data and credentials).")
+            ftp.quit()
+        except Exception:
+            pass
+
+        return service_misconfigs
+
+DELAY = 2
 COMMON_CREDENTIALS = [
     ("anonymous", ""),
     ("ftp", "ftp"),
@@ -133,6 +258,15 @@ COMMON_CREDENTIALS = [
     ("root", "root"),
     ("guest", "guest"),
     ("anonymous", "anonymous@domain.com")
+]
+
+DEFAULT_CREDENTIALS = [
+    ("admin", "admin"),
+    ("ftp", "ftp"),
+    ("user", "password"),
+    ("test", "test"),
+    ("root", "root"),
+    ("guest", "guest"),
 ]
 
 SYSTEM_DIRS = [
