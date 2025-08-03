@@ -1,7 +1,5 @@
 import ipaddress
-import argparse
 from .methods_recon.dns_resolve.resolve_lookup import Lookup
-from .methods_recon.dns_resolve.subdomain_resolve import Subdomain_Lookup
 from Essentials.utils import handle_scan_output,print_zone_transfer_results,print_whois_results,print_asn_results
 import traceback
 
