@@ -1,6 +1,6 @@
 from core.cli import parse_args
 from categories.recon import hostscan,hostprofile,dnsenum,traceroute,subenum,portscan
-from categories.analysis import cvelookup,webscanner,misconfig_detector
+from categories.analysis import cvelookup,webscanner
 from Essentials.utils import print_welcome_stamp
 import sys
 
@@ -66,11 +66,6 @@ def main():
         elif args.tool == "webscanner":
             try:
                 webscanner.run(args)
-            except Exception as e:
-                print(f"[!] Unexpected error during CVE lookup: {e}")
-        elif args.tool == "misconfdetector":
-            try:
-                misconfig_detector.run(args)
             except Exception as e:
                 print(f"[!] Unexpected error during CVE lookup: {e}")
                 
