@@ -5,10 +5,9 @@ import ipaddress
 
 def run(args):
     if not args.method:
-        print("[!] Error: No method specified for hostscan. Use -m with one of: arp, tcp")
-        return
-
-    method = args.method.lower()
+        method = "arp"
+    else:
+        method = args.method.lower()
 
     try:
         ipaddress.ip_network(args.range, strict=False)
@@ -24,6 +23,8 @@ def run(args):
                 print("[!] Npcap/WinPcap not found or not installed properly.")
                 print("[*] Falling back to ICMP scan...")
                 results = ICMPScan.icmp_scan(args.range, args.timeout, args.retries, args.output, args.format, args.silent)
+                if results is None:
+                    method = "tcp"
             else:
                 raise
         except Exception as e:
@@ -32,6 +33,8 @@ def run(args):
         tcp_flags = Handler.parse_tcp_flags(args.extra)
         try:
             results = Handler.tcp_scan(args.range, tcp_flags, args.timeout, args.retries, args.output, args.format)
+            if results is None:
+                method = "icmp"
         except Exception as e:
             print(f"[!] Unexpected error during TCP scan: {e}")
     elif method == "icmp":
@@ -42,6 +45,5 @@ def run(args):
             print("[!] Host appears to be down...")
         except Exception as e:
             print(f"[!] Unexpected error during ICMP scan: {e}")
-
     else:
         print(f"[!] Unknown method '{method}'. Valid options: arp, tcp")
