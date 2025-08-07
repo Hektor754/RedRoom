@@ -1,6 +1,7 @@
 from .methods_recon.protocol_scans.arp_scan import ARPScan
 from .methods_recon.protocol_scans.tcp_scan import Handler
 from .methods_recon.protocol_scans.icmp_scan import ICMPScan
+from .methods_recon.protocol_scans.udp_scan import UDPScan
 import ipaddress
 
 def run(args):
@@ -40,10 +41,17 @@ def run(args):
     elif method == "icmp":
         try:
             results = ICMPScan.icmp_scan(args.range, args.timeout, args.retries, args.output, args.format, args.silent)
+            if results is None:
+                method = "udp"
         except RuntimeError as e:
             print("[!] Taking too long to scan host.")
             print("[!] Host appears to be down...")
         except Exception as e:
             print(f"[!] Unexpected error during ICMP scan: {e}")
+    elif method == "udp":
+        try:
+            results = UDPScan.udp_scan(args.range, args.timeout, args.retries, args.output, args.format, args.silent)
+        except Exception as e:
+            print(f"[!] Unexpected error during UDP scan: {e}")           
     else:
         print(f"[!] Unknown method '{method}'. Valid options: arp, tcp")
