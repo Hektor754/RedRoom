@@ -28,7 +28,7 @@ def get_parser():
 
     hostscan = recon_subparsers.add_parser('hostscan', help='Perform host discovery')
     hostscan.add_argument('-r', '--range', required=True, help='Target IP or CIDR range')
-    hostscan.add_argument('-m', '--method', choices=['arp', 'tcp', 'icmp'], help='Discovery method')
+    hostscan.add_argument('-m', '--method', choices=['arp', 'tcp', 'icmp','udp'], help='Discovery method')
     add_common_args(hostscan)
 
     hostprofile = recon_subparsers.add_parser('hostprofile', help='Profile active hosts')
