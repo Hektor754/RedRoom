@@ -49,8 +49,14 @@ class Configuration_checker:
         service_misconfigs = misconfigs[service][category]
         service_misconfigs = Configuration_checker.check_ftp_directory_traversal(service_misconfigs, ip, port, timeout)
         service_misconfigs = Configuration_checker.check_world_writable_dirs(service_misconfigs, ip, port, timeout)
-        return misconfigs
 
+        category = "Server Configuration Issues"
+        if category not in misconfigs[service]:
+            misconfigs[service][category] = []
+        
+        service_misconfigs = misconfigs[service][category]
+        service_misconfigs = Configuration_checker.excessive_privilages(service_misconfigs, ip, port, timeout)
+        return misconfigs       
     @staticmethod
     def _credentials_try(ip, port, timeout):
         try:
@@ -417,7 +423,6 @@ class Configuration_checker:
         user_type = None
 
         try:
-            # Try anonymous login
             ftp.login(user='anonymous', passwd='anonymous@example.com')
             logged_in = True
             user_type = 'anonymous'
@@ -444,7 +449,67 @@ class Configuration_checker:
                     data = io.BytesIO(b"test")
                     ftp.storbinary(f"STOR {filename}", data)
                     ftp.delete(filename)
-                    service_misconfigs.append(f"World-writable directory found: {dir} — writable by {user_type}")
+
+                    service_misconfigs.append(
+                        f"World-writable directory found: {dir} — writable by {user_type}"
+                    )
+
+                    for file in SENSITIVE_FILES:
+                        try:
+                            ftp.retrbinary(f"RETR {file}", lambda _: None)
+                            service_misconfigs.append(f"Sensitive file accessible via FTP: {dir}/{file} by {user_type}")
+                            service_misconfigs.append(f"Missing access control: {user_type} can read {dir}{file}")
+                        except (error_perm, OSError):
+                            continue
+
+                except (error_perm, OSError):
+                    continue
+        finally:
+            Configuration_checker._safe_ftp_close(ftp)
+
+        return service_misconfigs
+
+    @staticmethod
+    def excessive_privilages(service_misconfigs, ip, port, timeout):
+        ftp = Configuration_checker._safe_ftp_connect(ip, port, timeout)
+        if not ftp:
+            return service_misconfigs
+
+        logged_in = False
+        user_type = None
+
+        try:
+            ftp.login(user='anonymous', passwd='anonymous@example.com')
+            logged_in = True
+            user_type = 'anonymous'
+        except (error_perm, OSError):
+            for username, password in COMMON_CREDENTIALS + DEFAULT_CREDENTIALS:
+                try:
+                    ftp.login(user=username, passwd=password)
+                    logged_in = True
+                    user_type = f'{username}:{password}'
+                    break
+                except (error_perm, OSError):
+                    continue
+
+        if not logged_in:
+            Configuration_checker._safe_ftp_close(ftp)
+            return service_misconfigs
+
+        try:
+            for system_dir in SYSTEM_DIRS:
+                try:
+                    ftp.cwd(system_dir)
+                    service_misconfigs.append(f"FTP service can access system directory: {system_dir} — excessive privileges")
+
+                    filename = "privtest.txt"
+                    data = io.BytesIO(b"test")
+                    try:
+                        ftp.storbinary(f"STOR {filename}", data)
+                        ftp.delete(filename)
+                        service_misconfigs.append(f"FTP service can write in system directory: {system_dir} — critical misconfiguration")
+                    except (error_perm, OSError):
+                        pass
                 except (error_perm, OSError):
                     continue
         finally:
