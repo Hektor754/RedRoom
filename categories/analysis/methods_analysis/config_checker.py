@@ -1,9 +1,8 @@
 from categories.recon.methods_recon.digital_fingerprinting.find_ports import PortScan
-from ftplib import FTP,error_perm, all_errors, FTP_TLS
-import argparse
-import getpass
+from ftplib import FTP,error_perm, all_errors, FTP_TLS,error_temp,error_reply
 import io
 from time import sleep
+import time
 
 class Configuration_checker:
     @staticmethod
@@ -56,6 +55,9 @@ class Configuration_checker:
         
         service_misconfigs = misconfigs[service][category]
         service_misconfigs = Configuration_checker.excessive_privilages(service_misconfigs, ip, port, timeout)
+        service_misconfigs = Configuration_checker.check_unnecessary_ftp_features(service_misconfigs, ip, port, timeout)
+        service_misconfigs = Configuration_checker.check_no_connection_limits(service_misconfigs, ip, port, timeout)
+        service_misconfigs = Configuration_checker.check_missing_timeout(service_misconfigs, ip, port, timeout)
         return misconfigs       
     @staticmethod
     def _credentials_try(ip, port, timeout):
@@ -512,6 +514,107 @@ class Configuration_checker:
                         pass
                 except (error_perm, OSError):
                     continue
+        finally:
+            Configuration_checker._safe_ftp_close(ftp)
+
+        return service_misconfigs
+
+    @staticmethod
+    def check_unnecessary_ftp_features(service_misconfigs, ip, port, timeout):
+        ftp = Configuration_checker._safe_ftp_connect(ip, port, timeout)
+        if not ftp:
+            return service_misconfigs
+
+        try:
+            try:
+                ftp.login(user='anonymous', passwd='anonymous@example.com')
+            except (error_perm, OSError):
+                for username, password in COMMON_CREDENTIALS + DEFAULT_CREDENTIALS:
+                    try:
+                        ftp.login(user=username, passwd=password)
+                        break
+                    except (error_perm, OSError):
+                        continue
+
+            features = []
+            try:
+                features = ftp.sendcmd("FEAT").splitlines()
+            except Exception:
+                pass
+
+            unnecessary = ["FXP", "SITE EXEC", "SITE CHMOD", "EPRT", "EPSV"]
+
+            for feature in features:
+                for item in unnecessary:
+                    if item in feature.upper():
+                        service_misconfigs.append(f"Unnecessary FTP feature enabled: {item}")
+
+        except Exception:
+            pass
+        finally:
+            Configuration_checker._safe_ftp_close(ftp)
+
+        return service_misconfigs
+
+    @staticmethod
+    def check_no_connection_limits(service_misconfigs, ip, port, timeout):
+        connections = []
+        try:
+            for _ in range(15):
+                ftp = FTP()
+                ftp.connect(ip, port, timeout=timeout)
+                ftp.login('anonymous', 'anonymous@example.com')
+                connections.append(ftp)
+            service_misconfigs.append("No connection limits configured — server allows excessive concurrent connections from single client")
+        except Exception:
+            pass
+        finally:
+            for ftp in connections:
+                try:
+                    ftp.quit()
+                except Exception:
+                    pass
+
+        return service_misconfigs
+
+    @staticmethod
+    def check_missing_timeout(service_misconfigs, ip, port, timeout, sleep_duration=120):
+        ftp = Configuration_checker._safe_ftp_connect(ip, port, timeout)
+        if not ftp:
+            return service_misconfigs
+
+        logged_in = False
+        user_type = None
+
+        try:
+            ftp.login(user='anonymous', passwd='anonymous@example.com')
+            logged_in = True
+            user_type = 'anonymous'
+        except (error_perm, OSError):
+            for username, password in COMMON_CREDENTIALS + DEFAULT_CREDENTIALS:
+                try:
+                    ftp.login(user=username, passwd=password)
+                    logged_in = True
+                    user_type = f'{username}:{password}'
+                    break
+                except (error_perm, OSError):
+                    continue
+
+        if not logged_in:
+            Configuration_checker._safe_ftp_close(ftp)
+            return service_misconfigs
+
+        try:
+            start = time.time()
+            sleep(sleep_duration)
+            try:
+                ftp.pwd()
+            except (error_temp, EOFError, error_reply, error_perm):
+                return service_misconfigs
+
+            service_misconfigs.append(f"Missing idle timeout configuration — session for {user_type} remained active after {sleep_duration} seconds of inactivity")
+        except Exception:
+            pass
         finally:
             Configuration_checker._safe_ftp_close(ftp)
 
