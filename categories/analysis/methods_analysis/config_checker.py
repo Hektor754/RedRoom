@@ -65,6 +65,30 @@ SENSITIVE_FILES = [
     'private.key', 'server.key', 'server.crt', 'ssl.key', 'ssl.crt',
 ]
 
+GENERAL_LOGS = [
+    "/var/log/syslog",
+    "/var/log/messages",
+    "/var/log/ftp.log",
+    "/var/log/xferlog",
+    "/var/log/vsftpd.log",
+    "/var/log/daemon.log",
+]
+
+FAILED_LOGIN_LOGS = [
+    "/var/log/auth.log",
+    "/var/log/secure",
+    "/var/log/faillog",
+    "/var/log/btmp",
+    "/var/log/wtmp",
+]
+
+FILE_TRANSFER_LOGS = [
+    "/var/log/xferlog",
+    "/var/log/vsftpd.log",
+    "/var/log/ftp.log",
+    "/var/log/messages",
+]
+
 class Configuration_checker:
     """FTP configuration misconfiguration checks (refactored)."""
 
@@ -211,7 +235,12 @@ class Configuration_checker:
         Configuration_checker.check_unnecessary_ftp_features(misconfigs[service]["Server Configuration Issues"], ip, port, timeout)
         Configuration_checker.check_no_connection_limits(misconfigs[service]["Server Configuration Issues"], ip, port, timeout)
         Configuration_checker.check_missing_timeout(misconfigs[service]["Server Configuration Issues"], ip, port, timeout)
-
+        Configuration_checker.check_insufficient_logging(misconfigs[service]["Server Configuration Issues"], ip, port, timeout)
+        Configuration_checker.check_failed_login_logging(misconfigs[service]["Server Configuration Issues"], ip, port, timeout)
+        
+        ensure_category("Network and Protocol Vulnerabilities")
+        Configuration_checker.check_passive_mode_insecure_ports(misconfigs[service]["Network and Protocol Vulnerabilities"], ip, port, timeout)
+        Configuration_checker.check_active_mode_insecure_behavior(misconfigs[service]["Network and Protocol Vulnerabilities"], ip, port, timeout)
         return misconfigs
 
     # --------------------- Individual checks ---------------------
@@ -716,5 +745,227 @@ class Configuration_checker:
             pass
         finally:
             Configuration_checker._safe_ftp_close(ftp)
+
+        return service_misconfigs
+
+    @staticmethod
+    def check_insufficient_logging(service_misconfigs, ip, port, timeout):
+        ftp, user_type = Configuration_checker._login_with_known_creds(ip, port, timeout)
+        if not ftp:
+            return service_misconfigs
+
+        marker = f"ftp_marker_{int(time.time())}"
+        uploaded = False
+
+        try:
+            # upload marker
+            def _upload_marker():
+                ftp.storbinary(f"STOR {marker}.txt", io.BytesIO(b"marker"))
+            try:
+                Configuration_checker._with_transfer_timeout(_upload_marker)
+                uploaded = True
+            except (error_perm, OSError, all_errors):
+                uploaded = False
+
+            # attempt a download to generate transfer log entry (if allowed)
+            if uploaded:
+                try:
+                    def _retr_marker():
+                        ftp.retrbinary(f"RETR {marker}.txt", lambda b: None)
+                    Configuration_checker._with_transfer_timeout(_retr_marker)
+                except Exception:
+                    pass
+
+            # delete marker to clean up (ignore failures)
+            try:
+                ftp.delete(f"{marker}.txt")
+            except Exception:
+                pass
+
+            found = False
+            for logfile in GENERAL_LOGS:
+                try:
+                    buf = io.BytesIO()
+                    def _retr_log():
+                        ftp.retrbinary(f"RETR {logfile}", buf.write)
+                    try:
+                        Configuration_checker._with_transfer_timeout(_retr_log)
+                    except (error_perm, OSError, all_errors):
+                        continue
+                    content = buf.getvalue()
+                    if not content:
+                        continue
+                    try:
+                        if marker.encode() in content or b"STOR " in content or b"RETR " in content:
+                            service_misconfigs.append(f"File transfer or marker entry found in accessible log: {logfile}")
+                            found = True
+                            break
+                    except Exception:
+                        continue
+                except Exception:
+                    continue
+
+            if not found:
+                service_misconfigs.append(
+                    "No evidence of file transfer logging found in accessible log files — logging may be insufficient or logs are not accessible via FTP"
+                )
+        finally:
+            Configuration_checker._safe_ftp_close(ftp)
+
+        return service_misconfigs
+    
+    @staticmethod
+    def check_failed_login_logging(service_misconfigs, ip, port, timeout, attempts=3):
+        marker_user = f"failtest_{int(time.time())}"
+        test_password = "wrongpass"
+
+        # Perform multiple failed login attempts
+        for _ in range(attempts):
+            ftp = Configuration_checker._safe_ftp_connect(ip, port, timeout)
+            if not ftp:
+                return service_misconfigs
+            try:
+                ftp.login(user=marker_user, passwd=test_password)
+            except (error_perm, OSError):
+                pass
+            finally:
+                Configuration_checker._safe_ftp_close(ftp)
+                sleep(DELAY)  # avoid flooding
+
+        # Try to find the marker in logs
+        ftp, user_type = Configuration_checker._login_with_known_creds(ip, port, timeout)
+        if not ftp:
+            return service_misconfigs
+
+        found = False
+        for log_path in FAILED_LOGIN_LOGS:
+            try:
+                data = io.BytesIO()
+                ftp.retrbinary(f"RETR {log_path}", data.write)
+                log_contents = data.getvalue().decode(errors='ignore')
+                if marker_user in log_contents or "authentication failure" in log_contents.lower():
+                    found = True
+                    break
+            except (error_perm, OSError):
+                continue
+
+        if not found:
+            service_misconfigs.append(
+                "No evidence of failed login attempt logging — may hinder security incident investigations"
+            )
+        else:
+            service_misconfigs.append(
+                "Failed login attempts are being logged — ensure logs are secured"
+            )
+
+        Configuration_checker._safe_ftp_close(ftp)
+        return service_misconfigs
+
+    @staticmethod
+    def check_file_transfer_logging(service_misconfigs, ip, port, timeout):
+        marker_filename = f"transfer_test_{int(time.time())}.txt"
+        marker_content = b"file transfer logging test"
+
+        ftp, user_type = Configuration_checker._login_with_known_creds(ip, port, timeout)
+        if not ftp:
+            return service_misconfigs
+
+        try:
+            # Upload a test file
+            ftp.storbinary(f"STOR {marker_filename}", io.BytesIO(marker_content))
+
+            # Download the file back
+            data = io.BytesIO()
+            ftp.retrbinary(f"RETR {marker_filename}", data.write)
+
+            # Remove the file after test
+            ftp.delete(marker_filename)
+        except (error_perm, OSError):
+            Configuration_checker._safe_ftp_close(ftp)
+            return service_misconfigs
+
+        # Check for logs mentioning the file name
+        log_candidates = [
+            '/var/log/vsftpd.log', '/var/log/xferlog', '/var/log/ftp.log',
+            '/var/log/messages', '/var/log/syslog', '/var/log/secure',
+            '/var/log/auth.log', '/var/log/daemon.log'
+        ]
+
+        found = False
+        for log_path in FILE_TRANSFER_LOGS:
+            try:
+                log_data = io.BytesIO()
+                ftp.retrbinary(f"RETR {log_path}", log_data.write)
+                if marker_filename in log_data.getvalue().decode(errors='ignore'):
+                    found = True
+                    break
+            except (error_perm, OSError):
+                continue
+
+        if not found:
+            service_misconfigs.append(
+                "Missing file transfer logging — uploads/downloads are not recorded"
+            )
+        else:
+            service_misconfigs.append(
+                "File transfers are logged — ensure logs are secured"
+            )
+
+        Configuration_checker._safe_ftp_close(ftp)
+        return service_misconfigs
+
+    @staticmethod
+    def check_passive_mode_insecure_ports(ftp_host, ftp_port=21):
+        service_misconfigs = []
+        try:
+            sock = socket.create_connection((ftp_host, ftp_port), timeout=10)
+            sock.recv(1024)
+            
+            sock.sendall(b'USER anonymous\r\n')
+            sock.recv(1024)
+            sock.sendall(b'PASS anonymous@\r\n')
+            sock.recv(1024)
+
+            sock.sendall(b'PASV\r\n')
+            pasv_response = sock.recv(1024).decode('utf-8', errors='ignore')
+
+            import re
+            match = re.search(r'\((\d+,\d+,\d+,\d+,\d+,\d+)\)', pasv_response)
+            if match:
+                parts = match.group(1).split(',')
+                p1, p2 = int(parts[-2]), int(parts[-1])
+                data_port = (p1 << 8) + p2
+
+                if data_port < 1024 or data_port > 65535:
+                    service_misconfigs.append(f"Passive mode uses insecure port {data_port} (PASV response: {pasv_response.strip()})")
+
+            sock.close()
+        except:
+            pass
+
+        return service_misconfigs
+    
+    @staticmethod
+    def check_active_mode_insecure_behavior(ftp_host, ftp_port=21):
+        service_misconfigs = []
+        try:
+            sock = socket.create_connection((ftp_host, ftp_port), timeout=10)
+            sock.recv(1024)
+
+            sock.sendall(b'USER anonymous\r\n')
+            sock.recv(1024)
+            sock.sendall(b'PASS anonymous@\r\n')
+            sock.recv(1024)
+
+            port_command = b'PORT 127,0,0,1,0,1\r\n'
+            sock.sendall(port_command)
+            response = sock.recv(1024).decode('utf-8', errors='ignore')
+
+            if response.startswith('200') or response.startswith('220'):
+                service_misconfigs.append("Active mode accepts potentially insecure PORT commands")
+
+            sock.close()
+        except:
+            pass
 
         return service_misconfigs
