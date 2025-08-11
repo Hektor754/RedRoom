@@ -4,6 +4,7 @@ import io
 from time import sleep
 import time
 import socket
+import re
 
 # ===================== CONFIGURABLE CONSTANTS =====================
 DELAY = 2
@@ -89,13 +90,50 @@ FILE_TRANSFER_LOGS = [
     "/var/log/messages",
 ]
 
-class Configuration_checker:
-    """FTP configuration misconfiguration checks (refactored)."""
+LATEST_VERSIONS = {
+    "vsftpd": "3.0.5",
+    "proftpd": "1.3.8",
+    "pure-ftpd": "1.0.50",
+    "wu-ftpd": "2.6.2",
+    "filezilla": "1.6.7"
+}
 
+EOL_FTP_VERSIONS = {
+    "wu-ftpd": "2.6.2",
+    "netware ftp": None,
+    "serv-u": "15.1.7",
+    "guildftpd": "0.999.14",
+    "war-ftpd": "1.82",
+}
+
+DEFAULT_FTP_BANNERS = [
+    "vsftpd 3.0.3",    
+    "pure-ftpd",       
+    "proftpd",         
+    "filezilla server",
+    "serv-u",          
+]
+
+
+class Configuration_checker:
+    # --------------------- Entry point ---------------------
+    @staticmethod
+    def run(ip, timeout, retries):
+        """
+        Placeholder orchestrator. Calls port discovery and returns a misconfigs dict.
+        TODO: orchestrate based on scan_results (which ports/services are open).
+        """
+        misconfigs = {}
+        scan_results = PortScan.Scan_method_handler(ip, tcp_flags=None, timeout=timeout, retries=retries)
+        # TODO: pick services from scan_results and call appropriate checkers
+        return misconfigs
+
+class FTP_Misconfigs:
+    
     # --------------------- Core helpers ---------------------
     @staticmethod
     def _safe_ftp_connect(ip, port, timeout):
-        """Attempt to connect and return FTP object or None."""
+        """Attempt to connect once and return FTP object or None."""
         try:
             ftp = FTP()
             ftp.connect(host=ip, port=port, timeout=timeout)
@@ -121,7 +159,7 @@ class Configuration_checker:
         Attempt login with: anonymous, then COMMON_CREDENTIALS+DEFAULT_CREDENTIALS.
         Returns (ftp, user_type) or (None, None).
         """
-        ftp = Configuration_checker._safe_ftp_connect(ip, port, timeout)
+        ftp = FTP_Misconfigs._safe_ftp_connect(ip, port, timeout)
         if not ftp:
             return None, None
 
@@ -141,7 +179,7 @@ class Configuration_checker:
                 continue
 
         # Nothing worked
-        Configuration_checker._safe_ftp_close(ftp)
+        FTP_Misconfigs._safe_ftp_close(ftp)
         return None, None
 
     @staticmethod
@@ -176,29 +214,17 @@ class Configuration_checker:
             ftp.delete(filename)
 
         try:
-            Configuration_checker._with_transfer_timeout(_do_write)
+            FTP_Misconfigs._with_transfer_timeout(_do_write)
             service_misconfigs.append(
                 f"World-writable directory found: {directory} — writable by {user_type}"
             )
         except (error_perm, OSError, all_errors):
             # permission denied or transfer error - ignore
             pass
-
-    # --------------------- Entry point ---------------------
-    @staticmethod
-    def run(ip, timeout, retries):
-        """
-        Placeholder orchestrator. Calls port discovery and returns a misconfigs dict.
-        TODO: orchestrate based on scan_results (which ports/services are open).
-        """
-        misconfigs = {}
-        scan_results = PortScan.Scan_method_handler(ip, tcp_flags=None, timeout=timeout, retries=retries)
-        # TODO: pick services from scan_results and call appropriate checkers
-        return misconfigs
-
+        
     # --------------------- FTP orchestrator ---------------------
     @staticmethod
-    def FTP_misconfigs(ip, port, timeout, retries, misconfigs):
+    def FTP_misconfigs(ip, port, timeout, misconfigs):
         """
         Populate misconfigs[service][category] lists for the FTP service.
         """
@@ -211,38 +237,39 @@ class Configuration_checker:
                 misconfigs[service][cat] = []
             return misconfigs[service][cat]
 
-        ensure_category("authentication and access control misconfigurations")
-        Configuration_checker.anonymous_auth_msconf(
-            misconfigs[service]["authentication and access control misconfigurations"],
-            ip, port, timeout
-        )
+        ensure_category("Authentication and Access Control")
+        FTP_Misconfigs.anonymous_auth_msconf(misconfigs[service]["Authentication and Access Control"],ip, port, timeout)
 
         ensure_category("Weak Authentication")
-        Configuration_checker.weak_authentication(misconfigs[service]["Weak Authentication"], ip, port, timeout)
-        Configuration_checker.no_account_lockout_policy(misconfigs[service]["Weak Authentication"], ip, port, timeout)
-        Configuration_checker.plaintext_authentication_missing_mfa(misconfigs[service]["Weak Authentication"], ip, port, timeout)
+        FTP_Misconfigs.weak_authentication(misconfigs[service]["Weak Authentication"], ip, port, timeout)
+        FTP_Misconfigs.no_account_lockout_policy(misconfigs[service]["Weak Authentication"], ip, port, timeout)
+        FTP_Misconfigs.plaintext_authentication_missing_mfa(misconfigs[service]["Weak Authentication"], ip, port, timeout)
 
         ensure_category("Encryption and Data Issues")
-        Configuration_checker.check_ftp_encryption(misconfigs[service]["Encryption and Data Issues"], ip, port, timeout)
-        Configuration_checker.unencrypted_file_transfer(misconfigs[service]["Encryption and Data Issues"], ip, port, timeout)
+        FTP_Misconfigs.check_ftp_encryption(misconfigs[service]["Encryption and Data Issues"], ip, port, timeout)
+        FTP_Misconfigs.unencrypted_file_transfer(misconfigs[service]["Encryption and Data Issues"], ip, port, timeout)
 
         ensure_category("Directory and File System Misconfigurations")
-        Configuration_checker.check_ftp_directory_traversal(misconfigs[service]["Directory and File System Misconfigurations"], ip, port, timeout)
-        Configuration_checker.check_world_writable_dirs(misconfigs[service]["Directory and File System Misconfigurations"], ip, port, timeout)
+        FTP_Misconfigs.check_ftp_directory_traversal(misconfigs[service]["Directory and File System Misconfigurations"], ip, port, timeout)
+        FTP_Misconfigs.check_world_writable_dirs(misconfigs[service]["Directory and File System Misconfigurations"], ip, port, timeout)
 
         ensure_category("Server Configuration Issues")
-        Configuration_checker.excessive_privilages(misconfigs[service]["Server Configuration Issues"], ip, port, timeout)
-        Configuration_checker.check_unnecessary_ftp_features(misconfigs[service]["Server Configuration Issues"], ip, port, timeout)
-        Configuration_checker.check_no_connection_limits(misconfigs[service]["Server Configuration Issues"], ip, port, timeout)
-        Configuration_checker.check_missing_timeout(misconfigs[service]["Server Configuration Issues"], ip, port, timeout)
-        Configuration_checker.check_insufficient_logging(misconfigs[service]["Server Configuration Issues"], ip, port, timeout)
-        Configuration_checker.check_failed_login_logging(misconfigs[service]["Server Configuration Issues"], ip, port, timeout)
+        FTP_Misconfigs.excessive_privilages(misconfigs[service]["Server Configuration Issues"], ip, port, timeout)
+        FTP_Misconfigs.check_unnecessary_ftp_features(misconfigs[service]["Server Configuration Issues"], ip, port, timeout)
+        FTP_Misconfigs.check_no_connection_limits(misconfigs[service]["Server Configuration Issues"], ip, port, timeout)
+        FTP_Misconfigs.check_missing_timeout(misconfigs[service]["Server Configuration Issues"], ip, port, timeout)
+        FTP_Misconfigs.check_insufficient_logging(misconfigs[service]["Server Configuration Issues"], ip, port, timeout)
+        FTP_Misconfigs.check_failed_login_logging(misconfigs[service]["Server Configuration Issues"], ip, port, timeout)
         
         ensure_category("Network and Protocol Vulnerabilities")
-        Configuration_checker.check_passive_mode_insecure_ports(misconfigs[service]["Network and Protocol Vulnerabilities"], ip, port, timeout)
-        Configuration_checker.check_active_mode_insecure_behavior(misconfigs[service]["Network and Protocol Vulnerabilities"], ip, port, timeout)
-        return misconfigs
+        FTP_Misconfigs.check_passive_mode_insecure_ports(misconfigs[service]["Network and Protocol Vulnerabilities"], ip, port, timeout)
+        FTP_Misconfigs.check_active_mode_insecure_behavior(misconfigs[service]["Network and Protocol Vulnerabilities"], ip, port, timeout)
 
+        ensure_category("Operation Security Issues")
+        FTP_Misconfigs.check_outdated_ftp_version(misconfigs[service]["Operation Security Issues"], ip, port, timeout)
+        FTP_Misconfigs.check_eol_ftp_version(misconfigs[service]["Operation Security Issues"], ip, port, timeout)
+        return misconfigs
+        
     # --------------------- Individual checks ---------------------
     @staticmethod
     def anonymous_auth_msconf(service_misconfigs, ip, port, timeout):
@@ -250,7 +277,7 @@ class Configuration_checker:
         Check for anonymous authentication + ability to upload / read sensitive files, etc.
         Uses _login_with_known_creds because the original logic tries anonymous then other creds.
         """
-        ftp, user_type = Configuration_checker._login_with_known_creds(ip, port, timeout)
+        ftp, user_type = FTP_Misconfigs._login_with_known_creds(ip, port, timeout)
         if not ftp:
             return service_misconfigs
 
@@ -265,7 +292,7 @@ class Configuration_checker:
                 ftp.delete("test_upload.txt")
 
             try:
-                Configuration_checker._with_transfer_timeout(_upload_test)
+                FTP_Misconfigs._with_transfer_timeout(_upload_test)
                 service_misconfigs.append(f"{user_type} has write access (test_upload.txt)")
             except (error_perm, OSError, all_errors):
                 pass
@@ -284,7 +311,7 @@ class Configuration_checker:
                     ftp.delete(filename)
 
                 try:
-                    Configuration_checker._with_transfer_timeout(_upload_shell)
+                    FTP_Misconfigs._with_transfer_timeout(_upload_shell)
                     service_misconfigs.append(f"{user_type} uploaded PHP shell in {dir}")
                 except (error_perm, OSError, all_errors):
                     # cannot upload here
@@ -305,7 +332,7 @@ class Configuration_checker:
                     ftp.delete("write_test.txt")
 
                 try:
-                    Configuration_checker._with_transfer_timeout(_write_test)
+                    FTP_Misconfigs._with_transfer_timeout(_write_test)
                     perms.append("write")
                 except (error_perm, OSError, all_errors):
                     pass
@@ -349,7 +376,7 @@ class Configuration_checker:
                         ftp.retrbinary(f"RETR {file}", lambda _: None)
 
                     try:
-                        Configuration_checker._with_transfer_timeout(_retr_listed)
+                        FTP_Misconfigs._with_transfer_timeout(_retr_listed)
                         service_misconfigs.append(f"{user_type} downloaded file from: {dir}{file}")
                     except (error_perm, OSError, all_errors):
                         continue
@@ -359,13 +386,13 @@ class Configuration_checker:
                         ftp.retrbinary(f"RETR {file}", lambda _: None)
 
                     try:
-                        Configuration_checker._with_transfer_timeout(_retr_sensitive)
+                        FTP_Misconfigs._with_transfer_timeout(_retr_sensitive)
                         service_misconfigs.append(f"{user_type} downloaded sensitive file: {dir}{file}")
                     except (error_perm, OSError, all_errors):
                         continue
 
         finally:
-            Configuration_checker._safe_ftp_close(ftp)
+            FTP_Misconfigs._safe_ftp_close(ftp)
 
         return service_misconfigs
 
@@ -382,7 +409,7 @@ class Configuration_checker:
             if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
                 break
 
-            ftp = Configuration_checker._safe_ftp_connect(ip, port, timeout)
+            ftp = FTP_Misconfigs._safe_ftp_connect(ip, port, timeout)
             if not ftp:
                 consecutive_failures += 1
                 sleep(DELAY)
@@ -401,7 +428,7 @@ class Configuration_checker:
             except all_errors:
                 consecutive_failures += 1
             finally:
-                Configuration_checker._safe_ftp_close(ftp)
+                FTP_Misconfigs._safe_ftp_close(ftp)
                 sleep(DELAY)
 
         # Test a specific user (admin) for simple weak passwords
@@ -413,7 +440,7 @@ class Configuration_checker:
             if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
                 break
 
-            ftp = Configuration_checker._safe_ftp_connect(ip, port, timeout)
+            ftp = FTP_Misconfigs._safe_ftp_connect(ip, port, timeout)
             if not ftp:
                 consecutive_failures += 1
                 sleep(DELAY)
@@ -423,7 +450,7 @@ class Configuration_checker:
                 ftp.login(user=test_user, passwd=pwd)
                 service_misconfigs.append(f"Allowed weak password '{pwd}' for user '{test_user}' — password complexity missing")
                 consecutive_failures = 0
-                Configuration_checker._safe_ftp_close(ftp)
+                FTP_Misconfigs._safe_ftp_close(ftp)
                 break
             except (error_perm, OSError):
                 consecutive_failures += 1
@@ -431,7 +458,7 @@ class Configuration_checker:
                 consecutive_failures += 1
                 break
             finally:
-                Configuration_checker._safe_ftp_close(ftp)
+                FTP_Misconfigs._safe_ftp_close(ftp)
                 sleep(DELAY)
 
         return service_misconfigs
@@ -442,9 +469,9 @@ class Configuration_checker:
         If we can connect (unencrypted) and login (even anonymously), it's plaintext auth.
         This method intentionally doesn't attempt credentials beyond a simple connect.
         """
-        ftp = Configuration_checker._safe_ftp_connect(ip, port, timeout)
+        ftp = FTP_Misconfigs._safe_ftp_connect(ip, port, timeout)
         if ftp:
-            Configuration_checker._safe_ftp_close(ftp)
+            FTP_Misconfigs._safe_ftp_close(ftp)
             service_misconfigs.append(f"FTP service on {ip}:{port} uses plaintext authentication (unencrypted login over FTP)")
             service_misconfigs.append(f"FTP service at {ip}:{port} does not enforce multi-factor authentication (MFA)")
         return service_misconfigs
@@ -460,7 +487,7 @@ class Configuration_checker:
         consecutive_failures = 0
 
         for attempt in range(max_attempts):
-            ftp = Configuration_checker._safe_ftp_connect(ip, port, timeout)
+            ftp = FTP_Misconfigs._safe_ftp_connect(ip, port, timeout)
             if not ftp:
                 break
 
@@ -471,7 +498,7 @@ class Configuration_checker:
             except all_errors:
                 break
             finally:
-                Configuration_checker._safe_ftp_close(ftp)
+                FTP_Misconfigs._safe_ftp_close(ftp)
                 sleep(DELAY)
 
         if consecutive_failures == max_attempts:
@@ -511,9 +538,9 @@ class Configuration_checker:
                     pass
 
         except (OSError, TimeoutError, all_errors):
-            ftp = Configuration_checker._safe_ftp_connect(ip, port, timeout)
+            ftp = FTP_Misconfigs._safe_ftp_connect(ip, port, timeout)
             if ftp:
-                Configuration_checker._safe_ftp_close(ftp)
+                FTP_Misconfigs._safe_ftp_close(ftp)
                 service_misconfigs.append("FTP server does NOT support FTPS (FTP over SSL/TLS) — no encryption available")
             else:
                 service_misconfigs.append(f"Failed to connect to FTP server on port {port} — encryption check skipped")
@@ -529,7 +556,7 @@ class Configuration_checker:
         if port != 21:
             return service_misconfigs
 
-        ftp = Configuration_checker._safe_ftp_connect(ip, port, timeout)
+        ftp = FTP_Misconfigs._safe_ftp_connect(ip, port, timeout)
         if ftp:
             try:
                 # try an anonymous login; ftplib's login() with no args uses 'anonymous'
@@ -539,7 +566,7 @@ class Configuration_checker:
                 except (error_perm, OSError):
                     pass
             finally:
-                Configuration_checker._safe_ftp_close(ftp)
+                FTP_Misconfigs._safe_ftp_close(ftp)
 
         return service_misconfigs
 
@@ -549,7 +576,7 @@ class Configuration_checker:
         Try to login (anonymous or known creds) and attempt to escape root using '..' sequences.
         Uses _login_with_known_creds because original behavior tests anonymous then other creds.
         """
-        ftp, user_type = Configuration_checker._login_with_known_creds(ip, port, timeout)
+        ftp, user_type = FTP_Misconfigs._login_with_known_creds(ip, port, timeout)
         if not ftp:
             return service_misconfigs
 
@@ -575,7 +602,7 @@ class Configuration_checker:
                                 ftp.retrbinary(f"RETR {file}", lambda _: None)
 
                             try:
-                                Configuration_checker._with_transfer_timeout(_retr_listed)
+                                FTP_Misconfigs._with_transfer_timeout(_retr_listed)
                                 service_misconfigs.append(f"File access allowed to {user_type} outside FTP directory: {new_dir}{file}")
                             except (error_perm, OSError, all_errors):
                                 continue
@@ -583,7 +610,7 @@ class Configuration_checker:
                 except (error_perm, OSError):
                     continue
         finally:
-            Configuration_checker._safe_ftp_close(ftp)
+            FTP_Misconfigs._safe_ftp_close(ftp)
 
         return service_misconfigs
 
@@ -592,14 +619,14 @@ class Configuration_checker:
         """
         Attempts to login (anonymous then other creds). Uses _test_directory_write for each dir.
         """
-        ftp, user_type = Configuration_checker._login_with_known_creds(ip, port, timeout)
+        ftp, user_type = FTP_Misconfigs._login_with_known_creds(ip, port, timeout)
         if not ftp:
             return service_misconfigs
 
         try:
             directories_to_check = SENSITIVE_DIRS + WEB_DIRS
             for d in directories_to_check:
-                Configuration_checker._test_directory_write(ftp, d, user_type, service_misconfigs)
+                FTP_Misconfigs._test_directory_write(ftp, d, user_type, service_misconfigs)
 
                 # If wrote successfully, also check for sensitive files readability in that dir
                 try:
@@ -612,13 +639,13 @@ class Configuration_checker:
                         ftp.retrbinary(f"RETR {file}", lambda _: None)
 
                     try:
-                        Configuration_checker._with_transfer_timeout(_retr_sensitive)
+                        FTP_Misconfigs._with_transfer_timeout(_retr_sensitive)
                         service_misconfigs.append(f"Sensitive file accessible via FTP: {d}/{file} by {user_type}")
                         service_misconfigs.append(f"Missing access control: {user_type} can read {d}{file}")
                     except (error_perm, OSError, all_errors):
                         continue
         finally:
-            Configuration_checker._safe_ftp_close(ftp)
+            FTP_Misconfigs._safe_ftp_close(ftp)
 
         return service_misconfigs
 
@@ -628,7 +655,7 @@ class Configuration_checker:
         Tests whether FTP has access to OS system directories and whether it can write there.
         Uses _login_with_known_creds because original logic tries anonymous then others.
         """
-        ftp, user_type = Configuration_checker._login_with_known_creds(ip, port, timeout)
+        ftp, user_type = FTP_Misconfigs._login_with_known_creds(ip, port, timeout)
         if not ftp:
             return service_misconfigs
 
@@ -646,14 +673,14 @@ class Configuration_checker:
                         ftp.delete(filename)
 
                     try:
-                        Configuration_checker._with_transfer_timeout(_st_write)
+                        FTP_Misconfigs._with_transfer_timeout(_st_write)
                         service_misconfigs.append(f"FTP service can write in system directory: {system_dir} — critical misconfiguration")
                     except (error_perm, OSError, all_errors):
                         pass
                 except (error_perm, OSError):
                     continue
         finally:
-            Configuration_checker._safe_ftp_close(ftp)
+            FTP_Misconfigs._safe_ftp_close(ftp)
 
         return service_misconfigs
 
@@ -663,7 +690,7 @@ class Configuration_checker:
         Logs into (anonymous or known creds) and sends FEAT (if supported) to see
         dangerous/unused features enabled. Uses _login_with_known_creds pattern.
         """
-        ftp, user_type = Configuration_checker._login_with_known_creds(ip, port, timeout)
+        ftp, user_type = FTP_Misconfigs._login_with_known_creds(ip, port, timeout)
         if not ftp:
             return service_misconfigs
 
@@ -687,7 +714,7 @@ class Configuration_checker:
             except Exception:
                 pass
         finally:
-            Configuration_checker._safe_ftp_close(ftp)
+            FTP_Misconfigs._safe_ftp_close(ftp)
 
         return service_misconfigs
 
@@ -727,7 +754,7 @@ class Configuration_checker:
         Login then sleep for `sleep_duration`. If the session is still active afterwards,
         we consider there to be a missing idle timeout.
         """
-        ftp, user_type = Configuration_checker._login_with_known_creds(ip, port, timeout)
+        ftp, user_type = FTP_Misconfigs._login_with_known_creds(ip, port, timeout)
         if not ftp:
             return service_misconfigs
 
@@ -744,13 +771,13 @@ class Configuration_checker:
         except Exception:
             pass
         finally:
-            Configuration_checker._safe_ftp_close(ftp)
+            FTP_Misconfigs._safe_ftp_close(ftp)
 
         return service_misconfigs
 
     @staticmethod
     def check_insufficient_logging(service_misconfigs, ip, port, timeout):
-        ftp, user_type = Configuration_checker._login_with_known_creds(ip, port, timeout)
+        ftp, user_type = FTP_Misconfigs._login_with_known_creds(ip, port, timeout)
         if not ftp:
             return service_misconfigs
 
@@ -762,7 +789,7 @@ class Configuration_checker:
             def _upload_marker():
                 ftp.storbinary(f"STOR {marker}.txt", io.BytesIO(b"marker"))
             try:
-                Configuration_checker._with_transfer_timeout(_upload_marker)
+                FTP_Misconfigs._with_transfer_timeout(_upload_marker)
                 uploaded = True
             except (error_perm, OSError, all_errors):
                 uploaded = False
@@ -772,7 +799,7 @@ class Configuration_checker:
                 try:
                     def _retr_marker():
                         ftp.retrbinary(f"RETR {marker}.txt", lambda b: None)
-                    Configuration_checker._with_transfer_timeout(_retr_marker)
+                    FTP_Misconfigs._with_transfer_timeout(_retr_marker)
                 except Exception:
                     pass
 
@@ -789,7 +816,7 @@ class Configuration_checker:
                     def _retr_log():
                         ftp.retrbinary(f"RETR {logfile}", buf.write)
                     try:
-                        Configuration_checker._with_transfer_timeout(_retr_log)
+                        FTP_Misconfigs._with_transfer_timeout(_retr_log)
                     except (error_perm, OSError, all_errors):
                         continue
                     content = buf.getvalue()
@@ -810,7 +837,7 @@ class Configuration_checker:
                     "No evidence of file transfer logging found in accessible log files — logging may be insufficient or logs are not accessible via FTP"
                 )
         finally:
-            Configuration_checker._safe_ftp_close(ftp)
+            FTP_Misconfigs._safe_ftp_close(ftp)
 
         return service_misconfigs
     
@@ -821,7 +848,7 @@ class Configuration_checker:
 
         # Perform multiple failed login attempts
         for _ in range(attempts):
-            ftp = Configuration_checker._safe_ftp_connect(ip, port, timeout)
+            ftp = FTP_Misconfigs._safe_ftp_connect(ip, port, timeout)
             if not ftp:
                 return service_misconfigs
             try:
@@ -829,11 +856,11 @@ class Configuration_checker:
             except (error_perm, OSError):
                 pass
             finally:
-                Configuration_checker._safe_ftp_close(ftp)
+                FTP_Misconfigs._safe_ftp_close(ftp)
                 sleep(DELAY)  # avoid flooding
 
         # Try to find the marker in logs
-        ftp, user_type = Configuration_checker._login_with_known_creds(ip, port, timeout)
+        ftp, user_type = FTP_Misconfigs._login_with_known_creds(ip, port, timeout)
         if not ftp:
             return service_misconfigs
 
@@ -858,7 +885,7 @@ class Configuration_checker:
                 "Failed login attempts are being logged — ensure logs are secured"
             )
 
-        Configuration_checker._safe_ftp_close(ftp)
+        FTP_Misconfigs._safe_ftp_close(ftp)
         return service_misconfigs
 
     @staticmethod
@@ -866,7 +893,7 @@ class Configuration_checker:
         marker_filename = f"transfer_test_{int(time.time())}.txt"
         marker_content = b"file transfer logging test"
 
-        ftp, user_type = Configuration_checker._login_with_known_creds(ip, port, timeout)
+        ftp, user_type = FTP_Misconfigs._login_with_known_creds(ip, port, timeout)
         if not ftp:
             return service_misconfigs
 
@@ -881,15 +908,8 @@ class Configuration_checker:
             # Remove the file after test
             ftp.delete(marker_filename)
         except (error_perm, OSError):
-            Configuration_checker._safe_ftp_close(ftp)
+            FTP_Misconfigs._safe_ftp_close(ftp)
             return service_misconfigs
-
-        # Check for logs mentioning the file name
-        log_candidates = [
-            '/var/log/vsftpd.log', '/var/log/xferlog', '/var/log/ftp.log',
-            '/var/log/messages', '/var/log/syslog', '/var/log/secure',
-            '/var/log/auth.log', '/var/log/daemon.log'
-        ]
 
         found = False
         for log_path in FILE_TRANSFER_LOGS:
@@ -911,7 +931,7 @@ class Configuration_checker:
                 "File transfers are logged — ensure logs are secured"
             )
 
-        Configuration_checker._safe_ftp_close(ftp)
+        FTP_Misconfigs._safe_ftp_close(ftp)
         return service_misconfigs
 
     @staticmethod
@@ -969,3 +989,114 @@ class Configuration_checker:
             pass
 
         return service_misconfigs
+
+    @staticmethod
+    def check_outdated_ftp_version(service_misconfigs, ip, port, timeout):
+        ftp = FTP_Misconfigs._safe_ftp_connect(ip, port, timeout)
+        if not ftp:
+            return service_misconfigs
+
+        try:
+            banner = ftp.getwelcome().lower()
+            for server_name, safe_version in LATEST_VERSIONS.items():
+                if server_name in banner:
+                    match = re.search(rf"{server_name}[^\d]*([\d\.]+)", banner)
+                    if match:
+                        detected_version = match.group(1)
+                        if detected_version != safe_version:
+                            service_misconfigs.append(
+                                f"Outdated FTP server version detected: {server_name} {detected_version} (latest: {safe_version})"
+                            )
+                    break
+        except (error_perm, OSError, all_errors):
+            pass
+        finally:
+            FTP_Misconfigs._safe_ftp_close(ftp)
+
+        return service_misconfigs
+
+    @staticmethod
+    def check_eol_ftp_version(service_misconfigs, ip, port, timeout):
+        """Detect if FTP server is an end-of-life version based on banner"""
+        ftp = FTP_Misconfigs._safe_ftp_connect(ip, port, timeout)
+        if not ftp:
+            return service_misconfigs
+
+        try:
+            banner = ftp.getwelcome().lower()
+            for server_name, last_version in EOL_FTP_VERSIONS.items():
+                if server_name in banner:
+                    if last_version:
+                        service_misconfigs.append(
+                            f"FTP server {server_name} detected — last known version {last_version} (EOL)"
+                        )
+                    else:
+                        service_misconfigs.append(
+                            f"FTP server {server_name} detected — project discontinued (EOL)"
+                        )
+                    break
+        except Exception:
+            pass
+        finally:
+            FTP_Misconfigs._safe_ftp_close(ftp)
+
+        return service_misconfigs
+    
+    @staticmethod
+    def check_default_configurations(service_misconfigs, ip, port, timeout):
+        """Detect FTP servers running with default banners or default credentials"""
+        ftp = FTP_Misconfigs._safe_ftp_connect(ip, port, timeout)
+        if not ftp:
+            return service_misconfigs
+
+        logged_in = False
+        user_type = None
+
+        try:
+            # === Banner Check ===
+            banner = ftp.getwelcome().lower()
+            for default_banner in DEFAULT_FTP_BANNERS:
+                if default_banner.lower() in banner:
+                    service_misconfigs.append(
+                        f"Default FTP banner detected: '{banner.strip()}' — possible default configuration"
+                    )
+                    break
+
+            # === Credential Check ===
+            try:
+                ftp.login(user='anonymous', passwd='anonymous@example.com')
+                service_misconfigs.append("Anonymous authentication allowed — default config not changed")
+                logged_in = True
+                user_type = 'anonymous'
+            except (error_perm, OSError):
+                for username, password in COMMON_CREDENTIALS + DEFAULT_CREDENTIALS:
+                    try:
+                        ftp.login(user=username, passwd=password)
+                        service_misconfigs.append(
+                            f"Default credentials accepted: {username}:{password}"
+                        )
+                        logged_in = True
+                        user_type = f"{username}:{password}"
+                        break
+                    except (error_perm, OSError):
+                        continue
+
+        except Exception:
+            pass
+        finally:
+            FTP_Misconfigs._safe_ftp_close(ftp)
+
+        return service_misconfigs
+
+class SSH_Misconfigs:
+    
+    @staticmethod
+    def SSH_misconfigs(ip, port, timeout, misconfigs):
+        service = "ssh"
+        if service not in misconfigs:
+            misconfigs[service] = {}
+
+        def ensure_category(cat):
+            if cat not in misconfigs[service]:
+                misconfigs[service][cat] = []
+            return misconfigs[service][cat]
