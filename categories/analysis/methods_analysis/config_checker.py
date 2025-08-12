@@ -5,6 +5,7 @@ from time import sleep
 import time
 import socket
 import re
+import paramiko
 
 # ===================== CONFIGURABLE CONSTANTS =====================
 DELAY = 2
@@ -1100,3 +1101,51 @@ class SSH_Misconfigs:
             if cat not in misconfigs[service]:
                 misconfigs[service][cat] = []
             return misconfigs[service][cat]
+
+        ensure_category("Authentication and Access Control")
+        SSH_Misconfigs.check_permit_root_login(misconfigs[service]["Authentication and Access Control"], ip, port, timeout)
+        
+    @staticmethod
+    def _safe_ssh_connect(ip, port, username, password, timeout):
+        """Attempt SSH connection with given creds, return SSHClient or None."""
+        try:
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            ssh.connect(
+                hostname=ip,
+                port=port,
+                username=username,
+                password=password,
+                timeout=timeout,
+                allow_agent=False,
+                look_for_keys=False
+            )
+            return ssh
+        except Exception:
+            return None
+
+    @staticmethod
+    def _safe_ssh_close(ssh_client):
+        """Close SSH connection if open."""
+        try:
+            ssh_client.close()
+        except Exception:
+            pass
+
+    @staticmethod
+    def check_permit_root_login(service_misconfigs, ip, port, timeout):
+        """
+        Checks if SSH allows direct root login with common passwords.
+        """
+        common_passwords = ["", "root", "toor", "admin", "123456"]
+
+        for password in common_passwords:
+            ssh = SSH_Misconfigs._safe_ssh_connect(ip, port, "root", password, timeout)
+            if ssh:
+                service_misconfigs.append(
+                    "PermitRootLogin enabled: SSH server allows direct root login with password authentication."
+                )
+                SSH_Misconfigs._safe_ssh_close(ssh)
+                break
+
+        return service_misconfigs
