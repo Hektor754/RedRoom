@@ -14,6 +14,29 @@ MAX_CONCURRENT_CONNECTIONS = 15
 DEFAULT_SLEEP_DURATION = 120  # For idle timeout check
 TRANSFER_TIMEOUT = 10  # Seconds for file upload/download ops
 
+WEAK_PASSWORDS = [
+    "",
+    "root",
+    "admin",
+    "123456",
+    "12345678",
+    "123456789",
+    "password",
+    "toor",
+    "qwerty",
+    "letmein",
+    "welcome",
+    "1234",
+    "111111",
+    "123123",
+    "abc123",
+    "1q2w3e4r",
+    "monkey",
+    "dragon",
+    "passw0rd",
+    "iloveyou"
+]
+
 COMMON_CREDENTIALS = [
     ("anonymous", ""),
     ("ftp", "ftp"),
@@ -1089,10 +1112,15 @@ class FTP_Misconfigs:
 
         return service_misconfigs
 
+import paramiko
+
 class SSH_Misconfigs:
-    
+
     @staticmethod
     def SSH_misconfigs(ip, port, timeout, misconfigs):
+        """
+        Populate misconfigs[service][category] for SSH service.
+        """
         service = "ssh"
         if service not in misconfigs:
             misconfigs[service] = {}
@@ -1102,9 +1130,35 @@ class SSH_Misconfigs:
                 misconfigs[service][cat] = []
             return misconfigs[service][cat]
 
-        ensure_category("Authentication and Access Control")
-        SSH_Misconfigs.check_permit_root_login(misconfigs[service]["Authentication and Access Control"], ip, port, timeout)
-        
+        auth_cat = ensure_category("Authentication and Access Control")
+
+        # Try each credential only once, reuse session for checks
+        credential_attempts = [
+            ("root", ""),  # empty password root
+            ("admin", ""),  # empty password admin
+            ("root", "root"),
+            ("root", "admin"),
+            ("root", "123456"),
+            ("root", "password"),
+            ("root", "toor"),
+        ]
+
+        for username, password in credential_attempts:
+            ssh = SSH_Misconfigs._safe_ssh_connect(ip, port, username, password, timeout)
+            if ssh:
+                # Pass session to checks
+                SSH_Misconfigs.check_permit_root_login(auth_cat, ssh, username, password)
+                SSH_Misconfigs.check_permit_empty_passwords(auth_cat, ssh, username, password)
+                SSH_Misconfigs.check_password_auth_root(auth_cat, ssh, username, password)
+                SSH_Misconfigs.check_password_auth_enabled(auth_cat, ssh, username, password)
+
+                SSH_Misconfigs._safe_ssh_close(ssh)
+                break  # stop after first successful login
+
+        return misconfigs
+
+    # ------------------ Internal Helpers ------------------
+
     @staticmethod
     def _safe_ssh_connect(ip, port, username, password, timeout):
         """Attempt SSH connection with given creds, return SSHClient or None."""
@@ -1128,24 +1182,37 @@ class SSH_Misconfigs:
     def _safe_ssh_close(ssh_client):
         """Close SSH connection if open."""
         try:
-            ssh_client.close()
+            if ssh_client:
+                ssh_client.close()
         except Exception:
             pass
 
+    # ------------------ Checks ------------------
+
     @staticmethod
-    def check_permit_root_login(service_misconfigs, ip, port, timeout):
-        """
-        Checks if SSH allows direct root login with common passwords.
-        """
-        common_passwords = ["", "root", "toor", "admin", "123456"]
+    def check_permit_root_login(service_misconfigs, ssh_session, username, password):
+        if username == "root" and password != "":
+            service_misconfigs.append("PermitRootLogin enabled: SSH server allows direct root login with password authentication.")
 
-        for password in common_passwords:
-            ssh = SSH_Misconfigs._safe_ssh_connect(ip, port, "root", password, timeout)
-            if ssh:
-                service_misconfigs.append(
-                    "PermitRootLogin enabled: SSH server allows direct root login with password authentication."
-                )
-                SSH_Misconfigs._safe_ssh_close(ssh)
-                break
+    @staticmethod
+    def check_permit_empty_passwords(service_misconfigs, ssh_session, username, password):
+        if password == "":
+            service_misconfigs.append(f"PermitEmptyPasswords enabled: SSH server allows login for user '{username}' with no password.")
 
-        return service_misconfigs
+    @staticmethod
+    def check_password_auth_root(service_misconfigs, ssh_session, username, password):
+        if username == "root" and password != "":
+            service_misconfigs.append("Password authentication enabled for root user.")
+            service_misconfigs.append("No key-based authentication required for root: server allows password login for root.")
+            
+    @staticmethod
+    def check_password_auth_enabled(service_misconfigs, username, password):
+        if password != "":
+            service_misconfigs.append(f"PasswordAuthentication enabled: SSH server allows password login for user '{username}' instead of requiring key-based authentication.")
+            
+    @staticmethod
+    def check_weak_password(service_misconfigs, username, password):
+        if password in WEAK_PASSWORDS:
+            service_misconfigs.append(
+                f"Weak password vulnerability: account '{username}' is protected with a commonly used or easily guessable password '{password or '<empty>'}'."
+            )
