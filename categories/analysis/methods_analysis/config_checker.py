@@ -1216,3 +1216,6 @@ class SSH_Misconfigs:
             service_misconfigs.append(
                 f"Weak password vulnerability: account '{username}' is protected with a commonly used or easily guessable password '{password or '<empty>'}'."
             )
+            
+            
+            
