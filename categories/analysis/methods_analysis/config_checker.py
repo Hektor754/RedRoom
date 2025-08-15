@@ -1147,10 +1147,13 @@ class SSH_Misconfigs:
             ssh = SSH_Misconfigs._safe_ssh_connect(ip, port, username, password, timeout)
             if ssh:
                 # Pass session to checks
-                SSH_Misconfigs.check_permit_root_login(auth_cat, ssh, username, password)
-                SSH_Misconfigs.check_permit_empty_passwords(auth_cat, ssh, username, password)
-                SSH_Misconfigs.check_password_auth_root(auth_cat, ssh, username, password)
-                SSH_Misconfigs.check_password_auth_enabled(auth_cat, ssh, username, password)
+                SSH_Misconfigs.check_permit_root_login(auth_cat, username, password)
+                SSH_Misconfigs.check_permit_empty_passwords(auth_cat, username, password)
+                SSH_Misconfigs.check_password_auth_root(auth_cat, username, password)
+                SSH_Misconfigs.check_password_auth_enabled(auth_cat, username, password)
+                SSH_Misconfigs.check_default_port(auth_cat, port)
+                SSH_Misconfigs.check_no_fail2ban_or_rate_limit(auth_cat, ssh)
+                SSH_Misconfigs.check_missing_mfa(auth_cat, ssh)
 
                 SSH_Misconfigs._safe_ssh_close(ssh)
                 break  # stop after first successful login
@@ -1190,17 +1193,17 @@ class SSH_Misconfigs:
     # ------------------ Checks ------------------
 
     @staticmethod
-    def check_permit_root_login(service_misconfigs, ssh_session, username, password):
+    def check_permit_root_login(service_misconfigs, username, password):
         if username == "root" and password != "":
             service_misconfigs.append("PermitRootLogin enabled: SSH server allows direct root login with password authentication.")
 
     @staticmethod
-    def check_permit_empty_passwords(service_misconfigs, ssh_session, username, password):
+    def check_permit_empty_passwords(service_misconfigs, username, password):
         if password == "":
             service_misconfigs.append(f"PermitEmptyPasswords enabled: SSH server allows login for user '{username}' with no password.")
 
     @staticmethod
-    def check_password_auth_root(service_misconfigs, ssh_session, username, password):
+    def check_password_auth_root(service_misconfigs, username, password):
         if username == "root" and password != "":
             service_misconfigs.append("Password authentication enabled for root user.")
             service_misconfigs.append("No key-based authentication required for root: server allows password login for root.")
@@ -1216,6 +1219,49 @@ class SSH_Misconfigs:
             service_misconfigs.append(
                 f"Weak password vulnerability: account '{username}' is protected with a commonly used or easily guessable password '{password or '<empty>'}'."
             )
-            
-            
-            
+
+    @staticmethod
+    def check_default_port(service_misconfigs, port):
+        """Flag if SSH is running on default port 22."""
+        if port == 22:
+            service_misconfigs.append("Default SSH port (22) still in use — easier to target by automated attacks.")
+
+    @staticmethod
+    def check_no_fail2ban_or_rate_limit(service_misconfigs, ssh_session):
+        """
+        Checks if fail2ban or similar SSH brute-force rate limiting is installed and active.
+        """
+        try:
+            # Check if fail2ban service is active
+            stdin, stdout, stderr = ssh_session.exec_command("systemctl is-active fail2ban")
+            fail2ban_status = stdout.read().decode().strip()
+
+            # Check if sshd_config has MaxAuthTries <= 3
+            stdin, stdout, stderr = ssh_session.exec_command("sshd -T | grep -i maxauthtries")
+            max_auth_tries_line = stdout.read().decode().strip()
+            max_auth_tries = int(max_auth_tries_line.split()[-1]) if max_auth_tries_line else None
+
+            if fail2ban_status != "active" and (not max_auth_tries or max_auth_tries > 3):
+                service_misconfigs.append("No fail2ban or SSH brute-force rate limiting configured.")
+        except Exception:
+            # If the command fails, assume rate limiting is not configured
+            service_misconfigs.append("Unable to verify fail2ban/rate-limiting configuration.")
+
+    @staticmethod
+    def check_missing_mfa(service_misconfigs, ssh_session):
+        """
+        Checks if SSH is configured with multi-factor authentication (MFA), e.g., via Google Authenticator or PAM.
+        """
+        try:
+            # Check for MFA configuration in PAM
+            stdin, stdout, stderr = ssh_session.exec_command("grep -i 'pam_google_authenticator.so' /etc/pam.d/sshd")
+            pam_output = stdout.read().decode().strip()
+
+            # Check SSHD config for authentication methods requiring more than just 'password'
+            stdin, stdout, stderr = ssh_session.exec_command("sshd -T | grep -i authenticationmethods")
+            auth_methods_line = stdout.read().decode().strip()
+
+            if not pam_output and ("publickey,password" not in auth_methods_line.lower()):
+                service_misconfigs.append("Multi-factor authentication not enabled for SSH.")
+        except Exception:
+            service_misconfigs.append("Unable to verify multi-factor authentication configuration.")
