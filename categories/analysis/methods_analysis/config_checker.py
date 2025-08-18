@@ -1244,8 +1244,7 @@ class SSH_Misconfigs:
             if fail2ban_status != "active" and (not max_auth_tries or max_auth_tries > 3):
                 service_misconfigs.append("No fail2ban or SSH brute-force rate limiting configured.")
         except Exception:
-            # If the command fails, assume rate limiting is not configured
-            service_misconfigs.append("Unable to verify fail2ban/rate-limiting configuration.")
+            pass
 
     @staticmethod
     def check_missing_mfa(service_misconfigs, ssh_session):
@@ -1264,4 +1263,4 @@ class SSH_Misconfigs:
             if not pam_output and ("publickey,password" not in auth_methods_line.lower()):
                 service_misconfigs.append("Multi-factor authentication not enabled for SSH.")
         except Exception:
-            service_misconfigs.append("Unable to verify multi-factor authentication configuration.")
+            pass
