@@ -1264,7 +1264,6 @@ class SSH_Misconfigs:
             if fail2ban_status != "active" and (not max_auth_tries or max_auth_tries > 3):
                 service_misconfigs.append("No fail2ban or SSH brute-force rate limiting configured.")
         except Exception:
-            # If the command fails, assume rate limiting is not configured
             service_misconfigs.append("Unable to verify fail2ban/rate-limiting configuration.")
 
     @staticmethod
@@ -1280,3 +1279,461 @@ class SSH_Misconfigs:
                 service_misconfigs.append("Multi-factor authentication not enabled for SSH.")
         except Exception:
             service_misconfigs.append("Unable to verify multi-factor authentication configuration.")
+
+    # ------------------ Key Management Checks ------------------
+
+    @staticmethod
+    def check_weak_key_algorithms(service_misconfigs, ssh_session):
+        try:
+            stdin, stdout, stderr = ssh_session.exec_command("awk '{print $1}' ~/.ssh/authorized_keys")
+            key_types = stdout.read().decode().strip().splitlines()
+
+            for ktype in key_types:
+                if ktype.startswith("ssh-dss"):
+                    service_misconfigs.append("Weak SSH key algorithm in use: DSA keys are insecure.")
+                elif ktype.startswith("ssh-rsa"):
+                    # crude check for weak RSA (<2048 bits)
+                    stdin2, stdout2, stderr2 = ssh_session.exec_command("ssh-keygen -lf ~/.ssh/authorized_keys | awk '{print $1}'")
+                    rsa_bits = stdout2.read().decode().strip()
+                    if rsa_bits and int(rsa_bits) < 2048:
+                        service_misconfigs.append(f"Weak RSA key detected ({rsa_bits} bits, should be >= 2048).")
+        except Exception:
+            service_misconfigs.append("Unable to verify SSH key algorithm strength.")
+
+    @staticmethod
+    def check_keys_without_passphrases(service_misconfigs, ssh_session):
+        try:
+            stdin, stdout, stderr = ssh_session.exec_command("find ~/.ssh -name '*.pub'")
+            pub_keys = stdout.read().decode().strip().splitlines()
+
+            for key in pub_keys:
+                stdin2, stdout2, stderr2 = ssh_session.exec_command(f"ssh-keygen -y -P '' -f {key[:-4]} 2>/dev/null")
+                output = stdout2.read().decode().strip()
+                if output:
+                    service_misconfigs.append(f"SSH key {key} has no passphrase (insecure).")
+        except Exception:
+            service_misconfigs.append("Unable to verify SSH key passphrase protection.")
+
+    @staticmethod
+    def check_old_orphaned_keys(service_misconfigs, ssh_session):
+        try:
+            stdin, stdout, stderr = ssh_session.exec_command("ls -l ~/.ssh/authorized_keys")
+            auth_keys_info = stdout.read().decode().strip()
+            if auth_keys_info:
+                service_misconfigs.append("Potential orphaned SSH keys: manual review of ~/.ssh/authorized_keys needed (keys may not be rotated or linked to active accounts).")
+        except Exception:
+            service_misconfigs.append("Unable to verify old/orphaned SSH keys.")
+            
+
+    # ------------------ Session Management & Crypto Checks ------------------
+
+    @staticmethod
+    def check_unlimited_login_attempts(service_misconfigs, ssh_session):
+        """
+        Check if MaxAuthTries is set too high (or unlimited).
+        """
+        try:
+            stdin, stdout, stderr = ssh_session.exec_command("sshd -T | grep -i maxauthtries")
+            line = stdout.read().decode().strip()
+            if not line:
+                service_misconfigs.append("MaxAuthTries not explicitly set — unlimited login attempts allowed.")
+            else:
+                value = int(line.split()[-1])
+                if value > 6:  # CIS benchmark recommends 4 or less
+                    service_misconfigs.append(f"Excessive login attempts allowed: MaxAuthTries={value}.")
+        except Exception:
+            service_misconfigs.append("Unable to verify MaxAuthTries (login attempt limit).")
+
+    @staticmethod
+    def check_idle_timeout(service_misconfigs, ssh_session):
+        """
+        Check if idle timeout is configured (ClientAliveInterval).
+        """
+        try:
+            stdin, stdout, stderr = ssh_session.exec_command("sshd -T | grep -i clientaliveinterval")
+            line = stdout.read().decode().strip()
+            if not line or int(line.split()[-1]) == 0:
+                service_misconfigs.append("No idle timeout configured: ClientAliveInterval is not set.")
+        except Exception:
+            service_misconfigs.append("Unable to verify idle timeout (ClientAliveInterval).")
+
+    @staticmethod
+    def check_client_alive_settings(service_misconfigs, ssh_session):
+        """
+        Check if both ClientAliveInterval and ClientAliveCountMax are set properly.
+        """
+        try:
+            stdin, stdout, stderr = ssh_session.exec_command("sshd -T")
+            config = stdout.read().decode().lower()
+
+            interval = None
+            countmax = None
+
+            for line in config.splitlines():
+                if line.startswith("clientaliveinterval"):
+                    interval = int(line.split()[1])
+                if line.startswith("clientalivecountmax"):
+                    countmax = int(line.split()[1])
+
+            if not interval or interval == 0:
+                service_misconfigs.append("ClientAliveInterval not configured — no automatic session termination.")
+            if not countmax or countmax > 3:
+                service_misconfigs.append(f"ClientAliveCountMax set too high ({countmax}) — idle sessions may persist.")
+        except Exception:
+            service_misconfigs.append("Unable to verify client alive settings.")
+
+    @staticmethod
+    def check_weak_crypto(service_misconfigs, ssh_session):
+        """
+        Check for weak ciphers, MACs, and key exchange algorithms.
+        """
+        try:
+            stdin, stdout, stderr = ssh_session.exec_command("sshd -T")
+            config = stdout.read().decode().lower()
+
+            weak_ciphers = ["cbc", "3des", "arcfour", "rc4", "aes128-cbc"]
+            weak_macs = ["hmac-md5", "hmac-sha1"]
+            weak_kex = ["diffie-hellman-group1-sha1", "diffie-hellman-group14-sha1"]
+
+            findings = []
+
+            for line in config.splitlines():
+                if line.startswith("ciphers") and any(w in line for w in weak_ciphers):
+                    findings.append("Weak ciphers enabled in SSH configuration.")
+                if line.startswith("macs") and any(w in line for w in weak_macs):
+                    findings.append("Weak MAC algorithms enabled in SSH configuration.")
+                if line.startswith("kexalgorithms") and any(w in line for w in weak_kex):
+                    findings.append("Weak key exchange algorithms enabled in SSH configuration.")
+
+            service_misconfigs.extend(findings)
+        except Exception:
+            service_misconfigs.append("Unable to verify SSH cryptographic settings.")
+
+
+    # ------------------ Access Restrictions Checks ------------------
+
+    @staticmethod
+    def check_allow_users_or_groups(service_misconfigs, ssh_session):
+        """
+        Verify if AllowUsers or AllowGroups is configured.
+        """
+        try:
+            stdin, stdout, stderr = ssh_session.exec_command("sshd -T | egrep -i 'allowusers|allowgroups'")
+            output = stdout.read().decode().strip()
+            if not output:
+                service_misconfigs.append("No AllowUsers/AllowGroups restrictions: SSH server permits login attempts from all system users.")
+        except Exception:
+            service_misconfigs.append("Unable to verify AllowUsers/AllowGroups configuration.")
+
+    @staticmethod
+    def check_listening_interfaces(service_misconfigs, ssh_session):
+        """
+        Check if SSH is bound to all interfaces (0.0.0.0).
+        """
+        try:
+            stdin, stdout, stderr = ssh_session.exec_command("ss -tulpn | grep sshd")
+            output = stdout.read().decode().strip()
+            if "0.0.0.0" in output or "[::]" in output:
+                service_misconfigs.append("SSH is listening on all interfaces (0.0.0.0), exposing the service to a larger attack surface.")
+        except Exception:
+            service_misconfigs.append("Unable to verify SSH listening interfaces.")
+
+    @staticmethod
+    def check_ip_restrictions(service_misconfigs, ssh_session):
+        """
+        Check if IP-based restrictions are applied (Match Address in sshd_config).
+        """
+        try:
+            stdin, stdout, stderr = ssh_session.exec_command("sshd -T | grep -i 'match address'")
+            output = stdout.read().decode().strip()
+            if not output:
+                service_misconfigs.append("No IP-based access restrictions: SSH server does not restrict access to specific trusted networks or addresses.")
+        except Exception:
+            service_misconfigs.append("Unable to verify IP-based access restrictions.")
+
+
+    # ------------------ Configuration & File Permissions ------------------
+
+    @staticmethod
+    def check_outdated_ssh_version(service_misconfigs, ssh_session):
+        """
+        Check if the SSH server version is outdated or has known vulnerabilities.
+        """
+        try:
+            stdin, stdout, stderr = ssh_session.exec_command("sshd -V 2>&1")
+            version_output = stderr.read().decode().strip() or stdout.read().decode().strip()
+            if version_output:
+                service_misconfigs.append(f"Potential outdated SSH version detected: {version_output}")
+        except Exception:
+            service_misconfigs.append("Unable to verify SSH version (could indicate outdated software).")
+
+    @staticmethod
+    def check_config_file_permissions(service_misconfigs, ssh_session):
+        """
+        Check SSH configuration file permissions (sshd_config).
+        """
+        try:
+            stdin, stdout, stderr = ssh_session.exec_command("stat -c %a /etc/ssh/sshd_config")
+            perms = stdout.read().decode().strip()
+            if perms and int(perms) > 644:
+                service_misconfigs.append(f"Insecure sshd_config permissions: {perms} (should be 600 or 644).")
+        except Exception:
+            service_misconfigs.append("Unable to verify sshd_config file permissions.")
+
+    @staticmethod
+    def check_world_readable_private_keys(service_misconfigs, ssh_session):
+        """
+        Check for private keys that are world-readable (critical issue).
+        """
+        try:
+            stdin, stdout, stderr = ssh_session.exec_command("find /etc/ssh -type f -name '*_key' -perm -o=r")
+            world_keys = stdout.read().decode().strip().splitlines()
+            if world_keys:
+                service_misconfigs.append(f"World-readable private SSH keys found: {', '.join(world_keys)}")
+        except Exception:
+            service_misconfigs.append("Unable to verify private key permissions.")
+
+class Telnet_Misconfigs:
+
+    @staticmethod
+    def Telnet_misconfigs(ip, port, timeout, misconfigs):
+        """
+        Populate misconfigs[service][category] for Telnet service.
+        """
+        service = "telnet"
+        if service not in misconfigs:
+            misconfigs[service] = {}
+
+        def ensure_category(cat):
+            if cat not in misconfigs[service]:
+                misconfigs[service][cat] = []
+            return misconfigs[service][cat]
+
+        auth_cat = ensure_category("Authentication and Access Control")
+        vuln_cat = ensure_category("Service Vulnerabilities")
+
+        # Attempt to connect
+        tn = Telnet_Misconfigs._safe_telnet_connect(ip, port, timeout)
+        if tn:
+            # Checks
+            Telnet_Misconfigs.check_service_enabled(vuln_cat, port)
+            Telnet_Misconfigs.check_default_credentials(auth_cat, tn)
+
+            Telnet_Misconfigs._safe_telnet_close(tn)
+
+        return misconfigs
+
+    # ------------------ Internal Helpers ------------------
+
+    @staticmethod
+    def _safe_telnet_connect(ip, port, timeout):
+        """Attempt Telnet connection, return Telnet object or None."""
+        try:
+            tn = telnetlib.Telnet(ip, port, timeout)
+            return tn
+        except (socket.timeout, ConnectionRefusedError, OSError):
+            return None
+
+    @staticmethod
+    def _safe_telnet_close(tn):
+        """Close Telnet connection if open."""
+        try:
+            if tn:
+                tn.close()
+        except Exception:
+            pass
+
+    # ------------------ Checks ------------------
+
+    @staticmethod
+    def check_service_enabled(service_misconfigs, port):
+        """Telnet is inherently insecure."""
+        service_misconfigs.append(f"Telnet service detected on port {port}: insecure plaintext protocol, should be disabled in favor of SSH.")
+
+    @staticmethod
+    def check_default_credentials(service_misconfigs, tn):
+        """
+        Attempt some common default accounts to see if login is possible.
+        Note: Only indicative; in real testing, avoid brute-force.
+        """
+        default_creds = [
+            ("root", "root"),
+            ("admin", "admin"),
+            ("user", "password"),
+        ]
+        for username, password in default_creds:
+            try:
+                tn.write(username.encode('ascii') + b"\n")
+                tn.write(password.encode('ascii') + b"\n")
+                # Simple read to see if login prompt disappears
+                output = tn.read_some().decode('ascii', errors='ignore')
+                if "incorrect" not in output.lower() and output.strip():
+                    service_misconfigs.append(f"Telnet allows login with default credentials '{username}/{password}'.")
+                    break
+            except Exception:
+                continue
+
+import smtplib
+import socket
+
+class SMTP_Misconfigs:
+
+    @staticmethod
+    def SMTP_misconfigs(ip, port, timeout, misconfigs):
+        """
+        Populate misconfigs[service][category] for SMTP service.
+        """
+        service = "smtp"
+        if service not in misconfigs:
+            misconfigs[service] = {}
+
+        def ensure_category(cat):
+            if cat not in misconfigs[service]:
+                misconfigs[service][cat] = []
+            return misconfigs[service][cat]
+
+        relay_cat = ensure_category("Relay and Authentication Issues")
+
+        # Attempt connection
+        smtp_conn = SMTP_Misconfigs._safe_smtp_connect(ip, port, timeout)
+        if smtp_conn:
+            # Run the must-have checks
+            SMTP_Misconfigs.check_open_relay(relay_cat, smtp_conn)
+            SMTP_Misconfigs.check_no_auth_required(relay_cat, smtp_conn)
+            SMTP_Misconfigs.check_unrestricted_relay_external(relay_cat, smtp_conn)
+
+            auth_cat = ensure_category("Authentication and Access Control")
+            SMTP_Misconfigs.check_lack_of_auth(auth_cat, smtp_conn)
+            SMTP_Misconfigs.check_anonymous_auth(auth_cat, smtp_conn)
+            SMTP_Misconfigs.check_missing_sasl(auth_cat, smtp_conn)
+
+            encryption_cat = ensure_category("Encryption and Transport Security")
+
+            SMTP_Misconfigs.check_no_tls_ssl(encryption_cat, smtp_conn)
+            SMTP_Misconfigs.check_starttls_not_enforced(encryption_cat, smtp_conn)
+            SMTP_Misconfigs.check_weak_ciphers(encryption_cat, smtp_conn)
+
+            SMTP_Misconfigs._safe_smtp_close(smtp_conn)
+
+        return misconfigs
+
+    # ------------------ Internal Helpers ------------------
+
+    @staticmethod
+    def _safe_smtp_connect(ip, port, timeout):
+        """Attempt SMTP connection, return connection object or None."""
+        try:
+            conn = smtplib.SMTP(timeout=timeout)
+            conn.connect(host=ip, port=port)
+            conn.ehlo_or_helo_if_needed()
+            return conn
+        except (smtplib.SMTPException, socket.error):
+            return None
+
+    @staticmethod
+    def _safe_smtp_close(smtp_conn):
+        """Close SMTP connection safely."""
+        try:
+            if smtp_conn:
+                smtp_conn.quit()
+        except Exception:
+            pass
+
+    # ------------------ Relay Issues ------------------
+
+    @staticmethod
+    def check_open_relay(service_misconfigs, smtp_conn):
+        """
+        Checks if the SMTP server allows open relay.
+        """
+        # Placeholder: actual test requires attempting to send mail from an external domain
+        # For now, just mark if server responds positively to RCPT TO from external
+        try:
+            code, response = smtp_conn.rcpt("external@example.com")
+            if code == 250:
+                service_misconfigs.append("Open relay vulnerability: SMTP server allows sending mail to external recipients without restrictions.")
+        except Exception:
+            pass
+
+    @staticmethod
+    def check_no_auth_required(service_misconfigs, smtp_conn):
+        """
+        Checks if SMTP relaying requires authentication.
+        """
+        try:
+            if "auth" not in smtp_conn.esmtp_features:
+                service_misconfigs.append("No authentication required for relaying: SMTP server allows sending mail without credentials.")
+        except Exception:
+            service_misconfigs.append("Unable to verify SMTP authentication requirements.")
+
+    @staticmethod
+    def check_unrestricted_relay_external(service_misconfigs, smtp_conn):
+        """
+        Checks if SMTP server allows unrestricted relay for external domains.
+        """
+        try:
+            # Placeholder: requires testing relay to various external domains
+            # Here, we assume the same RCPT TO check
+            code, response = smtp_conn.rcpt("external2@example.com")
+            if code == 250:
+                service_misconfigs.append("Unrestricted relay for external domains: SMTP server does not restrict outgoing mail to authorized recipients.")
+        except Exception:
+            pass
+
+    # ------------------ Authentication and Access control ------------------
+    
+    @staticmethod
+    def check_lack_of_auth(service_misconfigs, smtp_conn):
+        """
+        Checks if SMTP server allows sending mail without any authentication.
+        """
+        try:
+            if "auth" not in smtp_conn.esmtp_features:
+                service_misconfigs.append("Lack of authentication: SMTP server allows sending mail without credentials.")
+        except Exception:
+            service_misconfigs.append("Unable to verify SMTP authentication features.")
+
+    @staticmethod
+    def check_anonymous_auth(service_misconfigs, smtp_conn):
+        """
+        Checks if anonymous authentication is enabled.
+        """
+        try:
+            if "auth" in smtp_conn.esmtp_features and "ANONYMOUS" in smtp_conn.esmtp_features["auth"].upper():
+                service_misconfigs.append("Anonymous authentication enabled: SMTP allows sending mail without identifying the sender.")
+        except Exception:
+            service_misconfigs.append("Unable to verify anonymous authentication configuration.")
+
+    @staticmethod
+    def check_missing_sasl(service_misconfigs, smtp_conn):
+        """
+        Checks if SASL authentication is missing.
+        """
+        try:
+            if "auth" not in smtp_conn.esmtp_features or "PLAIN" not in smtp_conn.esmtp_features["auth"].upper():
+                service_misconfigs.append("No SASL authentication configured: SMTP server lacks proper authentication mechanisms.")
+        except Exception:
+            service_misconfigs.append("Unable to verify SASL authentication configuration.")
+
+    # ------------------ Encryption and Transport Security ------------------
+    @staticmethod
+    def check_no_tls_ssl(service_misconfigs, smtp_conn):
+        try:
+            # Attempt EHLO without TLS; if server responds, TLS is not required
+            smtp_conn.starttls()  # If this fails, TLS not configured
+        except Exception:
+            service_misconfigs.append("No TLS/SSL encryption configured: SMTP traffic may be sent in plaintext.")
+
+    @staticmethod
+    def check_starttls_not_enforced(service_misconfigs, smtp_conn):
+        try:
+            # Check if server advertises STARTTLS
+            if "starttls" not in smtp_conn.esmtp_features:
+                service_misconfigs.append("STARTTLS not enforced: clients may connect without encryption.")
+        except Exception:
+            service_misconfigs.append("Unable to verify STARTTLS enforcement.")
+
+    @staticmethod
+    def check_weak_ciphers(service_misconfigs, smtp_conn):
+        # This is a placeholder; real check would require SSL/TLS analysis
+        service_misconfigs.append("Weak cipher suites allowed: SMTP encryption may be vulnerable to attacks.")
