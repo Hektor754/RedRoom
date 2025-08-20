@@ -1,5 +1,7 @@
 from categories.recon.methods_recon.digital_fingerprinting.find_ports import PortScan
 from ftplib import FTP, error_perm, all_errors, FTP_TLS, error_temp, error_reply
+import telnetlib
+import smtplib
 import io
 from time import sleep
 import time
@@ -1146,7 +1148,7 @@ class SSH_Misconfigs:
         for username, password in credential_attempts:
             ssh = SSH_Misconfigs._safe_ssh_connect(ip, port, username, password, timeout)
             if ssh:
-                # Pass session to checks
+                # Auth & Access checks
                 SSH_Misconfigs.check_permit_root_login(auth_cat, username, password)
                 SSH_Misconfigs.check_permit_empty_passwords(auth_cat, username, password)
                 SSH_Misconfigs.check_password_auth_root(auth_cat, username, password)
@@ -1154,6 +1156,29 @@ class SSH_Misconfigs:
                 SSH_Misconfigs.check_default_port(auth_cat, port)
                 SSH_Misconfigs.check_no_fail2ban_or_rate_limit(auth_cat, ssh)
                 SSH_Misconfigs.check_missing_mfa(auth_cat, ssh)
+
+                # Key Management Issues
+                key_cat = ensure_category("Key Management Issues")
+                SSH_Misconfigs.check_weak_key_algorithms(key_cat, ssh)
+                SSH_Misconfigs.check_keys_without_passphrases(key_cat, ssh)
+                SSH_Misconfigs.check_old_orphaned_keys(key_cat, ssh)
+
+                session_cat = ensure_category("Configuration Hardening Issues")
+
+                SSH_Misconfigs.check_unlimited_login_attempts(session_cat, ssh)
+                SSH_Misconfigs.check_idle_timeout(session_cat, ssh)
+                SSH_Misconfigs.check_client_alive_settings(session_cat, ssh)
+                SSH_Misconfigs.check_weak_crypto(session_cat, ssh)  
+
+                access_cat = ensure_category("Access Restrictions")
+                SSH_Misconfigs.check_allow_users_or_groups(access_cat, ssh)
+                SSH_Misconfigs.check_listening_interfaces(access_cat, ssh)
+                SSH_Misconfigs.check_ip_restrictions(access_cat, ssh)
+
+                config_cat = ensure_category("Configuration and File Permissions")
+                SSH_Misconfigs.check_outdated_ssh_version(config_cat, ssh)
+                SSH_Misconfigs.check_config_file_permissions(config_cat, ssh)
+                SSH_Misconfigs.check_world_readable_private_keys(config_cat, ssh)
 
                 SSH_Misconfigs._safe_ssh_close(ssh)
                 break  # stop after first successful login
@@ -1190,7 +1215,7 @@ class SSH_Misconfigs:
         except Exception:
             pass
 
-    # ------------------ Checks ------------------
+    # ------------------ Authentication & Access Checks ------------------
 
     @staticmethod
     def check_permit_root_login(service_misconfigs, username, password):
@@ -1228,15 +1253,10 @@ class SSH_Misconfigs:
 
     @staticmethod
     def check_no_fail2ban_or_rate_limit(service_misconfigs, ssh_session):
-        """
-        Checks if fail2ban or similar SSH brute-force rate limiting is installed and active.
-        """
         try:
-            # Check if fail2ban service is active
             stdin, stdout, stderr = ssh_session.exec_command("systemctl is-active fail2ban")
             fail2ban_status = stdout.read().decode().strip()
 
-            # Check if sshd_config has MaxAuthTries <= 3
             stdin, stdout, stderr = ssh_session.exec_command("sshd -T | grep -i maxauthtries")
             max_auth_tries_line = stdout.read().decode().strip()
             max_auth_tries = int(max_auth_tries_line.split()[-1]) if max_auth_tries_line else None
@@ -1244,23 +1264,19 @@ class SSH_Misconfigs:
             if fail2ban_status != "active" and (not max_auth_tries or max_auth_tries > 3):
                 service_misconfigs.append("No fail2ban or SSH brute-force rate limiting configured.")
         except Exception:
-            pass
+            # If the command fails, assume rate limiting is not configured
+            service_misconfigs.append("Unable to verify fail2ban/rate-limiting configuration.")
 
     @staticmethod
     def check_missing_mfa(service_misconfigs, ssh_session):
-        """
-        Checks if SSH is configured with multi-factor authentication (MFA), e.g., via Google Authenticator or PAM.
-        """
         try:
-            # Check for MFA configuration in PAM
             stdin, stdout, stderr = ssh_session.exec_command("grep -i 'pam_google_authenticator.so' /etc/pam.d/sshd")
             pam_output = stdout.read().decode().strip()
 
-            # Check SSHD config for authentication methods requiring more than just 'password'
             stdin, stdout, stderr = ssh_session.exec_command("sshd -T | grep -i authenticationmethods")
             auth_methods_line = stdout.read().decode().strip()
 
             if not pam_output and ("publickey,password" not in auth_methods_line.lower()):
                 service_misconfigs.append("Multi-factor authentication not enabled for SSH.")
         except Exception:
-            pass
+            service_misconfigs.append("Unable to verify multi-factor authentication configuration.")
