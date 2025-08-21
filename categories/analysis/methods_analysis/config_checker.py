@@ -1,6 +1,6 @@
 from categories.recon.methods_recon.digital_fingerprinting.find_ports import PortScan
 from ftplib import FTP, error_perm, all_errors, FTP_TLS, error_temp, error_reply
-import telnetlib
+import telnetlib3
 import smtplib
 import io
 from time import sleep
@@ -8,6 +8,8 @@ import time
 import socket
 import re
 import paramiko
+import smtplib
+import asyncio
 
 # ===================== CONFIGURABLE CONSTANTS =====================
 DELAY = 2
@@ -1114,15 +1116,10 @@ class FTP_Misconfigs:
 
         return service_misconfigs
 
-import paramiko
-
 class SSH_Misconfigs:
 
     @staticmethod
     def SSH_misconfigs(ip, port, timeout, misconfigs):
-        """
-        Populate misconfigs[service][category] for SSH service.
-        """
         service = "ssh"
         if service not in misconfigs:
             misconfigs[service] = {}
@@ -1134,10 +1131,9 @@ class SSH_Misconfigs:
 
         auth_cat = ensure_category("Authentication and Access Control")
 
-        # Try each credential only once, reuse session for checks
         credential_attempts = [
-            ("root", ""),  # empty password root
-            ("admin", ""),  # empty password admin
+            ("root", ""),
+            ("admin", ""),
             ("root", "root"),
             ("root", "admin"),
             ("root", "123456"),
@@ -1148,27 +1144,25 @@ class SSH_Misconfigs:
         for username, password in credential_attempts:
             ssh = SSH_Misconfigs._safe_ssh_connect(ip, port, username, password, timeout)
             if ssh:
-                # Auth & Access checks
                 SSH_Misconfigs.check_permit_root_login(auth_cat, username, password)
                 SSH_Misconfigs.check_permit_empty_passwords(auth_cat, username, password)
                 SSH_Misconfigs.check_password_auth_root(auth_cat, username, password)
                 SSH_Misconfigs.check_password_auth_enabled(auth_cat, username, password)
+                SSH_Misconfigs.check_weak_password(auth_cat, username, password)
                 SSH_Misconfigs.check_default_port(auth_cat, port)
                 SSH_Misconfigs.check_no_fail2ban_or_rate_limit(auth_cat, ssh)
                 SSH_Misconfigs.check_missing_mfa(auth_cat, ssh)
 
-                # Key Management Issues
                 key_cat = ensure_category("Key Management Issues")
                 SSH_Misconfigs.check_weak_key_algorithms(key_cat, ssh)
                 SSH_Misconfigs.check_keys_without_passphrases(key_cat, ssh)
                 SSH_Misconfigs.check_old_orphaned_keys(key_cat, ssh)
 
                 session_cat = ensure_category("Configuration Hardening Issues")
-
                 SSH_Misconfigs.check_unlimited_login_attempts(session_cat, ssh)
                 SSH_Misconfigs.check_idle_timeout(session_cat, ssh)
                 SSH_Misconfigs.check_client_alive_settings(session_cat, ssh)
-                SSH_Misconfigs.check_weak_crypto(session_cat, ssh)  
+                SSH_Misconfigs.check_weak_crypto(session_cat, ssh)
 
                 access_cat = ensure_category("Access Restrictions")
                 SSH_Misconfigs.check_allow_users_or_groups(access_cat, ssh)
@@ -1181,15 +1175,12 @@ class SSH_Misconfigs:
                 SSH_Misconfigs.check_world_readable_private_keys(config_cat, ssh)
 
                 SSH_Misconfigs._safe_ssh_close(ssh)
-                break  # stop after first successful login
+                break
 
         return misconfigs
 
-    # ------------------ Internal Helpers ------------------
-
     @staticmethod
     def _safe_ssh_connect(ip, port, username, password, timeout):
-        """Attempt SSH connection with given creds, return SSHClient or None."""
         try:
             ssh = paramiko.SSHClient()
             ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -1208,7 +1199,6 @@ class SSH_Misconfigs:
 
     @staticmethod
     def _safe_ssh_close(ssh_client):
-        """Close SSH connection if open."""
         try:
             if ssh_client:
                 ssh_client.close()
@@ -1496,9 +1486,9 @@ class SSH_Misconfigs:
 class Telnet_Misconfigs:
 
     @staticmethod
-    def Telnet_misconfigs(ip, port, timeout, misconfigs):
+    async def Telnet_misconfigs(ip, port, timeout, misconfigs):
         """
-        Populate misconfigs[service][category] for Telnet service.
+        Populate misconfigs[service][category] for Telnet service (async version).
         """
         service = "telnet"
         if service not in misconfigs:
@@ -1511,35 +1501,39 @@ class Telnet_Misconfigs:
 
         auth_cat = ensure_category("Authentication and Access Control")
         vuln_cat = ensure_category("Service Vulnerabilities")
+        config_cat = ensure_category("Configuration and Hardening")
 
         # Attempt to connect
-        tn = Telnet_Misconfigs._safe_telnet_connect(ip, port, timeout)
-        if tn:
+        conn = await Telnet_Misconfigs._safe_telnet_connect(ip, port, timeout)
+        if conn:
+            reader, writer = conn
+
             # Checks
             Telnet_Misconfigs.check_service_enabled(vuln_cat, port)
-            Telnet_Misconfigs.check_default_credentials(auth_cat, tn)
+            await Telnet_Misconfigs.check_default_credentials(auth_cat, reader, writer, timeout)
 
-            Telnet_Misconfigs._safe_telnet_close(tn)
+            await Telnet_Misconfigs._safe_telnet_close(writer)
 
         return misconfigs
 
     # ------------------ Internal Helpers ------------------
 
     @staticmethod
-    def _safe_telnet_connect(ip, port, timeout):
-        """Attempt Telnet connection, return Telnet object or None."""
+    async def _safe_telnet_connect(ip, port, timeout):
+        """Attempt Telnet connection, return (reader, writer) or None."""
         try:
-            tn = telnetlib.Telnet(ip, port, timeout)
-            return tn
-        except (socket.timeout, ConnectionRefusedError, OSError):
+            reader, writer = await telnetlib3.open_connection(ip, port, timeout=timeout)
+            return reader, writer
+        except (asyncio.TimeoutError, ConnectionRefusedError, OSError, socket.timeout):
             return None
 
     @staticmethod
-    def _safe_telnet_close(tn):
+    async def _safe_telnet_close(writer):
         """Close Telnet connection if open."""
         try:
-            if tn:
-                tn.close()
+            if writer:
+                writer.close()
+                await writer.wait_closed()
         except Exception:
             pass
 
@@ -1548,33 +1542,53 @@ class Telnet_Misconfigs:
     @staticmethod
     def check_service_enabled(service_misconfigs, port):
         """Telnet is inherently insecure."""
-        service_misconfigs.append(f"Telnet service detected on port {port}: insecure plaintext protocol, should be disabled in favor of SSH.")
+        service_misconfigs.append(
+            f"Telnet service detected on port {port}: insecure plaintext protocol, should be disabled in favor of SSH."
+        )
 
     @staticmethod
-    def check_default_credentials(service_misconfigs, tn):
+    async def check_default_credentials(service_misconfigs, reader, writer, timeout=5):
         """
-        Attempt some common default accounts to see if login is possible.
-        Note: Only indicative; in real testing, avoid brute-force.
+        Attempt some common default accounts to see if login is possible (async),
+        with prompt detection and timeout.
         """
         default_creds = [
             ("root", "root"),
             ("admin", "admin"),
             ("user", "password"),
         ]
+
         for username, password in default_creds:
             try:
-                tn.write(username.encode('ascii') + b"\n")
-                tn.write(password.encode('ascii') + b"\n")
-                # Simple read to see if login prompt disappears
-                output = tn.read_some().decode('ascii', errors='ignore')
-                if "incorrect" not in output.lower() and output.strip():
-                    service_misconfigs.append(f"Telnet allows login with default credentials '{username}/{password}'.")
+                # Wait for login prompt
+                prompt = await asyncio.wait_for(reader.read(1024), timeout=timeout)
+                if not prompt:
+                    continue
+
+                # Send username
+                writer.write(username + "\n")
+                await writer.drain()
+
+                # Wait for password prompt
+                prompt = await asyncio.wait_for(reader.read(1024), timeout=timeout)
+                if not prompt:
+                    continue
+
+                # Send password
+                writer.write(password + "\n")
+                await writer.drain()
+
+                # Read server response
+                response = await asyncio.wait_for(reader.read(1024), timeout=timeout)
+                if response and "incorrect" not in response.lower():
+                    service_misconfigs.append(
+                        f"Telnet allows login with default credentials '{username}/{password}'."
+                    )
                     break
+            except asyncio.TimeoutError:
+                continue
             except Exception:
                 continue
-
-import smtplib
-import socket
 
 class SMTP_Misconfigs:
 
@@ -1593,32 +1607,39 @@ class SMTP_Misconfigs:
             return misconfigs[service][cat]
 
         relay_cat = ensure_category("Relay and Authentication Issues")
+        auth_cat = ensure_category("Authentication and Access Control")
+        encryption_cat = ensure_category("Encryption and Transport Security")
+        config_cat = ensure_category("Configuration and Hardening Issues")
+        soft_cat = ensure_category("Configuration and Software Issues")
 
-        # Attempt connection
         smtp_conn = SMTP_Misconfigs._safe_smtp_connect(ip, port, timeout)
-        if smtp_conn:
-            # Run the must-have checks
-            SMTP_Misconfigs.check_open_relay(relay_cat, smtp_conn)
-            SMTP_Misconfigs.check_no_auth_required(relay_cat, smtp_conn)
-            SMTP_Misconfigs.check_unrestricted_relay_external(relay_cat, smtp_conn)
+        try:
+            if smtp_conn:
+                # Relay checks
+                SMTP_Misconfigs.check_no_auth_required(relay_cat, smtp_conn)
 
-            auth_cat = ensure_category("Authentication and Access Control")
-            SMTP_Misconfigs.check_lack_of_auth(auth_cat, smtp_conn)
-            SMTP_Misconfigs.check_anonymous_auth(auth_cat, smtp_conn)
-            SMTP_Misconfigs.check_missing_sasl(auth_cat, smtp_conn)
+                # Authentication checks
+                SMTP_Misconfigs.check_anonymous_auth(auth_cat, smtp_conn)
+                SMTP_Misconfigs.check_missing_sasl(auth_cat, smtp_conn)
 
-            encryption_cat = ensure_category("Encryption and Transport Security")
+                # Encryption checks
+                SMTP_Misconfigs.check_no_tls_ssl(encryption_cat, smtp_conn)
+                SMTP_Misconfigs.check_starttls_not_enforced(encryption_cat, smtp_conn)
 
-            SMTP_Misconfigs.check_no_tls_ssl(encryption_cat, smtp_conn)
-            SMTP_Misconfigs.check_starttls_not_enforced(encryption_cat, smtp_conn)
-            SMTP_Misconfigs.check_weak_ciphers(encryption_cat, smtp_conn)
+                # Configuration / Hardening checks
+                SMTP_Misconfigs.check_banner_disclosure(config_cat, smtp_conn)
+                SMTP_Misconfigs.check_unnecessary_smtp_commands(config_cat, smtp_conn)
 
+                SMTP_Misconfigs.check_outdated_version(soft_cat, smtp_conn)
+                SMTP_Misconfigs.check_unlimited_message_size(soft_cat, smtp_conn)
+                SMTP_Misconfigs.check_monitoring_logging(soft_cat)
+
+        finally:
             SMTP_Misconfigs._safe_smtp_close(smtp_conn)
 
         return misconfigs
 
     # ------------------ Internal Helpers ------------------
-
     @staticmethod
     def _safe_smtp_connect(ip, port, timeout):
         """Attempt SMTP connection, return connection object or None."""
@@ -1640,100 +1661,126 @@ class SMTP_Misconfigs:
             pass
 
     # ------------------ Relay Issues ------------------
-
-    @staticmethod
-    def check_open_relay(service_misconfigs, smtp_conn):
-        """
-        Checks if the SMTP server allows open relay.
-        """
-        # Placeholder: actual test requires attempting to send mail from an external domain
-        # For now, just mark if server responds positively to RCPT TO from external
-        try:
-            code, response = smtp_conn.rcpt("external@example.com")
-            if code == 250:
-                service_misconfigs.append("Open relay vulnerability: SMTP server allows sending mail to external recipients without restrictions.")
-        except Exception:
-            pass
-
     @staticmethod
     def check_no_auth_required(service_misconfigs, smtp_conn):
-        """
-        Checks if SMTP relaying requires authentication.
-        """
+        """Check if SMTP relaying requires authentication."""
         try:
             if "auth" not in smtp_conn.esmtp_features:
-                service_misconfigs.append("No authentication required for relaying: SMTP server allows sending mail without credentials.")
+                service_misconfigs.append(
+                    "No authentication required for relaying: SMTP server allows sending mail without credentials."
+                )
         except Exception:
             service_misconfigs.append("Unable to verify SMTP authentication requirements.")
 
-    @staticmethod
-    def check_unrestricted_relay_external(service_misconfigs, smtp_conn):
-        """
-        Checks if SMTP server allows unrestricted relay for external domains.
-        """
-        try:
-            # Placeholder: requires testing relay to various external domains
-            # Here, we assume the same RCPT TO check
-            code, response = smtp_conn.rcpt("external2@example.com")
-            if code == 250:
-                service_misconfigs.append("Unrestricted relay for external domains: SMTP server does not restrict outgoing mail to authorized recipients.")
-        except Exception:
-            pass
-
-    # ------------------ Authentication and Access control ------------------
-    
-    @staticmethod
-    def check_lack_of_auth(service_misconfigs, smtp_conn):
-        """
-        Checks if SMTP server allows sending mail without any authentication.
-        """
-        try:
-            if "auth" not in smtp_conn.esmtp_features:
-                service_misconfigs.append("Lack of authentication: SMTP server allows sending mail without credentials.")
-        except Exception:
-            service_misconfigs.append("Unable to verify SMTP authentication features.")
-
+    # ------------------ Authentication and Access Control ------------------
     @staticmethod
     def check_anonymous_auth(service_misconfigs, smtp_conn):
-        """
-        Checks if anonymous authentication is enabled.
-        """
+        """Check if anonymous authentication is enabled."""
         try:
             if "auth" in smtp_conn.esmtp_features and "ANONYMOUS" in smtp_conn.esmtp_features["auth"].upper():
-                service_misconfigs.append("Anonymous authentication enabled: SMTP allows sending mail without identifying the sender.")
+                service_misconfigs.append(
+                    "Anonymous authentication enabled: SMTP allows sending mail without identifying the sender."
+                )
         except Exception:
             service_misconfigs.append("Unable to verify anonymous authentication configuration.")
 
     @staticmethod
     def check_missing_sasl(service_misconfigs, smtp_conn):
-        """
-        Checks if SASL authentication is missing.
-        """
+        """Check if SASL authentication is missing."""
         try:
             if "auth" not in smtp_conn.esmtp_features or "PLAIN" not in smtp_conn.esmtp_features["auth"].upper():
-                service_misconfigs.append("No SASL authentication configured: SMTP server lacks proper authentication mechanisms.")
+                service_misconfigs.append(
+                    "No SASL authentication configured: SMTP server lacks proper authentication mechanisms."
+                )
         except Exception:
             service_misconfigs.append("Unable to verify SASL authentication configuration.")
 
     # ------------------ Encryption and Transport Security ------------------
     @staticmethod
     def check_no_tls_ssl(service_misconfigs, smtp_conn):
+        """Check if TLS/SSL is configured."""
         try:
-            # Attempt EHLO without TLS; if server responds, TLS is not required
-            smtp_conn.starttls()  # If this fails, TLS not configured
+            if "starttls" not in smtp_conn.esmtp_features:
+                service_misconfigs.append(
+                    "No TLS/SSL encryption configured: SMTP traffic may be sent in plaintext."
+                )
         except Exception:
-            service_misconfigs.append("No TLS/SSL encryption configured: SMTP traffic may be sent in plaintext.")
+            service_misconfigs.append("Unable to verify TLS/SSL configuration.")
 
     @staticmethod
     def check_starttls_not_enforced(service_misconfigs, smtp_conn):
+        """Check if STARTTLS is enforced."""
         try:
-            # Check if server advertises STARTTLS
             if "starttls" not in smtp_conn.esmtp_features:
-                service_misconfigs.append("STARTTLS not enforced: clients may connect without encryption.")
+                service_misconfigs.append(
+                    "STARTTLS not enforced: clients may connect without encryption."
+                )
         except Exception:
             service_misconfigs.append("Unable to verify STARTTLS enforcement.")
 
+    # ------------------ Configuration and Hardening Issues ------------------
     @staticmethod
-    def check_weak_ciphers(service_misconfigs, smtp_conn):
-        # This is a placeholder; real check would require SSL/TLS analysis
-        service_misconfigs.append("Weak cipher suites allowed: SMTP encryption may be vulnerable to attacks.")
+    def check_banner_disclosure(service_misconfigs, smtp_conn):
+        """Check if SMTP server banner reveals software/version."""
+        try:
+            banner = getattr(smtp_conn, "welcome", b"").decode()
+            if any(keyword in banner.lower() for keyword in ["postfix", "exim", "sendmail", "smtp"]):
+                service_misconfigs.append(
+                    "Banner information disclosure: SMTP server reveals software/version in banner."
+                )
+        except Exception:
+            service_misconfigs.append("Unable to verify banner information disclosure.")
+
+    @staticmethod
+    def check_unnecessary_smtp_commands(service_misconfigs, smtp_conn):
+        """Check if dangerous SMTP commands like VRFY or EXPN are supported."""
+        try:
+            code, msg = smtp_conn.ehlo()
+            decoded_msg = msg.decode().lower() if isinstance(msg, bytes) else str(msg).lower()
+            if "vrfy" in decoded_msg or "expn" in decoded_msg:
+                service_misconfigs.append(
+                    "Unnecessary SMTP commands enabled (VRFY/EXPN): allows user enumeration."
+                )
+        except Exception:
+            service_misconfigs.append("Unable to verify unnecessary SMTP commands.")
+
+    # ------------------ Configuration and Software Issues ------------------
+
+    @staticmethod
+    def check_outdated_version(service_misconfigs, smtp_conn):
+        """
+        Check if SMTP server software appears outdated via banner.
+        """
+        try:
+            code, banner = smtp_conn.docmd("NOOP")
+            banner_text = banner.decode()
+            if any(keyword in banner_text.lower() for keyword in ["postfix", "exim", "sendmail"]):
+                service_misconfigs.append(f"SMTP server banner indicates potential outdated software: '{banner_text}'")
+            else:
+                service_misconfigs.append(f"SMTP server banner retrieved: '{banner_text}' — review for outdated versions.")
+        except Exception:
+            service_misconfigs.append("Unable to retrieve SMTP server banner to check for outdated software.")
+
+    @staticmethod
+    def check_unlimited_message_size(service_misconfigs, smtp_conn):
+        """
+        Check if SMTP server allows effectively unlimited message size.
+        """
+        try:
+            code, ehlo_response = smtp_conn.ehlo()
+            ehlo_text = ehlo_response.decode()
+            if "SIZE" in ehlo_text:
+                size_value = int(ehlo_text.split("SIZE")[1].split()[0])
+                if size_value >= 102400000:  # e.g., >100MB considered effectively unlimited
+                    service_misconfigs.append(f"SMTP server allows very large messages: {size_value} bytes (potential unlimited).")
+            else:
+                service_misconfigs.append("SMTP server does not advertise SIZE limit — messages may be unlimited.")
+        except Exception:
+            service_misconfigs.append("Unable to verify SMTP message size limits.")
+
+    @staticmethod
+    def check_monitoring_logging(service_misconfigs):
+        """
+        Flag missing monitoring/logging for SMTP server.
+        """
+        service_misconfigs.append("Monitoring/logging not verified or configured — SMTP server activity may not be tracked.")
