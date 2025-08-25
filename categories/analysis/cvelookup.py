@@ -18,3 +18,4 @@ def run(args):
         if matches:
             print_cve_matches(matches)
             handle_scan_output(matches, scantype, filename=args.output, ftype=args.format)
+
