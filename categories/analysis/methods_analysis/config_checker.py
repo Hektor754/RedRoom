@@ -10,6 +10,14 @@ import re
 import paramiko
 import smtplib
 import asyncio
+import dns.resolver
+import dns.query
+import dns.zone
+import dns.exception
+import dns.message
+import dns.dnssec
+import dns.name
+import dns.flags
 
 # ===================== CONFIGURABLE CONSTANTS =====================
 DELAY = 2
@@ -1784,3 +1792,229 @@ class SMTP_Misconfigs:
         Flag missing monitoring/logging for SMTP server.
         """
         service_misconfigs.append("Monitoring/logging not verified or configured — SMTP server activity may not be tracked.")
+
+class DNS_Misconfigs:
+
+    @staticmethod
+    def DNS_misconfigs(ip_or_domain, port, timeout, misconfigs):
+        """
+        Populate misconfigs[service][category] for DNS service.
+        """
+        service = "dns"
+        if service not in misconfigs:
+            misconfigs[service] = {}
+
+        def ensure_category(cat):
+            if cat not in misconfigs[service]:
+                misconfigs[service][cat] = []
+            return misconfigs[service][cat]
+
+        zone_cat = ensure_category("Zone Transfer Issues")
+        resolver_cat = ensure_category("Open DNS Resolver Issues")
+        dnssec_cat = ensure_category("DNSSEC Implementation")
+        basic_access_cat = ensure_category("Basic Access Control")
+        info_disclosure_cat = ensure_category("Information Disclosure")
+        domain = DNS_Misconfigs._resolve_zone(ip_or_domain)
+
+        if domain:
+            DNS_Misconfigs.check_unrestricted_zone_transfer(zone_cat, ip_or_domain, domain, timeout)
+            DNS_Misconfigs.check_missing_ip_restrictions(zone_cat, ip_or_domain, domain, timeout)
+            DNS_Misconfigs.check_open_resolver(resolver_cat, ip_or_domain, timeout)
+            DNS_Misconfigs.check_no_ip_restrictions_on_recursion(resolver_cat, ip_or_domain, timeout)
+            DNS_Misconfigs.check_dns_amplification_vulnerability(resolver_cat, ip_or_domain, timeout)
+            DNS_Misconfigs.check_dnssec_not_enabled(dnssec_cat, domain)
+            DNS_Misconfigs.check_missing_dnssec_validation(dnssec_cat, domain)
+            DNS_Misconfigs.check_dns_listening_on_all_interfaces(basic_access_cat, ip_or_domain, port)
+            DNS_Misconfigs.check_external_access_to_internal_dns(basic_access_cat, ip_or_domain)
+            DNS_Misconfigs.check_dns_version_exposed(info_disclosure_cat, domain)
+            DNS_Misconfigs.check_chaos_class_enabled(info_disclosure_cat, domain)
+
+        return misconfigs
+
+    # ------------------ Helper: Resolve domain from IP or domain ------------------
+
+    @staticmethod
+    def _resolve_zone(ip_or_domain):
+        try:
+            socket.inet_aton(ip_or_domain)  # Check if it's an IP
+            try:
+                hostname = socket.gethostbyaddr(ip_or_domain)[0]
+                parts = hostname.split('.')
+                if len(parts) > 2:
+                    return '.'.join(parts[-2:])  # Extract base domain
+                return hostname
+            except Exception:
+                return None
+        except socket.error:
+            # Not an IP, assume it's already a domain
+            return ip_or_domain
+
+    # ------------------ Zone Transfer Issues ------------------
+
+    @staticmethod
+    def check_unrestricted_zone_transfer(service_misconfigs, ip, domain, timeout):
+        """
+        Attempt AXFR to detect unrestricted zone transfers.
+        """
+        try:
+            xfr = dns.query.xfr(where=ip, zone=domain, timeout=timeout)
+            zone = dns.zone.from_xfr(xfr)
+            if zone:
+                service_misconfigs.append(
+                    f"Unrestricted zone transfer: DNS server at {ip} allows AXFR for zone '{domain}', exposing internal network structure."
+                )
+        except dns.exception.FormError:
+            pass  # Zone transfer not allowed
+        except Exception:
+            pass
+
+    @staticmethod
+    def check_missing_ip_restrictions(service_misconfigs, ip, domain, timeout):
+        """
+        If zone transfer succeeds, it likely means missing IP restrictions.
+        """
+        try:
+            xfr = dns.query.xfr(where=ip, zone=domain, timeout=timeout)
+            zone = dns.zone.from_xfr(xfr)
+            if zone:
+                service_misconfigs.append(
+                    f"Missing IP restrictions on zone transfers: DNS server at {ip} accepted AXFR from this client."
+                )
+        except Exception:
+            pass
+
+    @staticmethod
+    def check_open_resolver(service_misconfigs, ip, timeout):
+        """
+        Checks if DNS recursion is enabled for external clients.
+        """
+        try:
+            query = dns.message.make_query("example.com", dns.rdatatype.A)
+            query.flags |= dns.flags.RD  # Recursion Desired
+            response = dns.query.udp(query, ip, timeout=timeout)
+            if response.flags & dns.flags.RA:  # Recursion Available
+                service_misconfigs.append(
+                    f"Open DNS Resolver: DNS server at {ip} allows recursive queries from external clients."
+                )
+        except Exception:
+            pass
+
+    @staticmethod
+    def check_no_ip_restrictions_on_recursion(service_misconfigs, ip, timeout):
+        """
+        If recursion works without IP restriction, add this finding.
+        """
+        try:
+            query = dns.message.make_query("example.org", dns.rdatatype.A)
+            query.flags |= dns.flags.RD
+            response = dns.query.udp(query, ip, timeout=timeout)
+            if response.flags & dns.flags.RA:
+                service_misconfigs.append(
+                    f"No source IP restrictions on recursion: DNS server at {ip} responds to recursive queries from any client."
+                )
+        except Exception:
+            pass
+
+    @staticmethod
+    def check_dns_amplification_vulnerability(service_misconfigs, ip, timeout):
+        """
+        Tests for DNS amplification by sending a small query and checking for a large response.
+        """
+        try:
+            query = dns.message.make_query(".", dns.rdatatype.ANY)
+            query.flags |= dns.flags.RD
+            request_size = len(query.to_wire())
+            response = dns.query.udp(query, ip, timeout=timeout)
+            response_size = len(response.to_wire())
+            if response_size > request_size * 3:  # Arbitrary threshold for amplification
+                service_misconfigs.append(
+                    f"DNS Amplification Vulnerability: Server at {ip} responded with {response_size} bytes for a {request_size}-byte query."
+                )
+        except Exception:
+            pass
+
+    @staticmethod
+    def check_dnssec_not_enabled(service_misconfigs, domain):
+        """
+        Check if DNSSEC is enabled for the given domain by looking for DNSKEY records.
+        """
+        try:
+            answers = dns.resolver.resolve(domain, 'DNSKEY', raise_on_no_answer=False)
+            if not answers.rrset:
+                service_misconfigs.append(f"DNSSEC not enabled: No DNSKEY record found for {domain}.")
+        except dns.resolver.NoAnswer:
+            service_misconfigs.append(f"DNSSEC not enabled: No DNSKEY record found for {domain}.")
+        except dns.resolver.NXDOMAIN:
+            service_misconfigs.append(f"Domain {domain} does not exist, cannot check DNSSEC.")
+        except Exception:
+            service_misconfigs.append(f"Unable to verify DNSSEC enablement for {domain}.")
+
+    @staticmethod
+    def check_missing_dnssec_validation(service_misconfigs, domain):
+        """
+        Check if DNSSEC validation is possible by attempting to validate RRSIG.
+        """
+        try:
+            # Get DNSKEY and RRSIG for the domain
+            dnskey = dns.resolver.resolve(domain, 'DNSKEY')
+            rrsig = dns.resolver.resolve(domain, 'RRSIG')
+
+            # Verify DNSSEC (basic attempt)
+            if not dnskey or not rrsig:
+                service_misconfigs.append(f"Missing DNSSEC validation: Required records (DNSKEY/RRSIG) not found for {domain}.")
+        except dns.resolver.NoAnswer:
+            service_misconfigs.append(f"Missing DNSSEC validation: Required records not available for {domain}.")
+        except Exception:
+            service_misconfigs.append(f"Unable to verify DNSSEC validation for {domain}.")
+
+    @staticmethod
+    def check_dns_listening_on_all_interfaces(service_misconfigs, ip, port):
+        """
+        Check if DNS service is bound to 0.0.0.0 (all interfaces).
+        """
+        try:
+            if ip == "0.0.0.0":
+                service_misconfigs.append("DNS service is listening on all interfaces (0.0.0.0): Consider restricting to specific IPs.")
+        except Exception:
+            service_misconfigs.append("Unable to verify if DNS is listening on all interfaces.")
+
+    @staticmethod
+    def check_external_access_to_internal_dns(service_misconfigs, ip):
+        """
+        Simple check: If IP is private, but accessible externally, it's a risk.
+        """
+        try:
+            private_ranges = ["10.", "172.", "192.168"]
+            if any(ip.startswith(prefix) for prefix in private_ranges):
+                service_misconfigs.append("External access to internal DNS server detected: Private IP should not be externally accessible.")
+        except Exception:
+            service_misconfigs.append("Unable to determine external access risk for DNS.")
+
+    @staticmethod
+    def check_dns_version_exposed(service_misconfigs, domain):
+        """
+        Check if DNS version is exposed via CHAOS TXT query for 'version.bind'.
+        """
+        try:
+            query = dns.message.make_query('version.bind', 'TXT', 'CH')
+            response = dns.query.udp(query, domain, timeout=3)
+            if response.answer:
+                version_info = response.answer[0].to_text()
+                service_misconfigs.append(f"DNS server version information exposed: {version_info}")
+        except Exception:
+            # If CHAOS query fails, assume it's secure
+            pass
+
+    @staticmethod
+    def check_chaos_class_enabled(service_misconfigs, domain):
+        """
+        Checks if CHAOS class queries work (indicates information disclosure risk).
+        """
+        try:
+            query = dns.message.make_query('hostname.bind', 'TXT', 'CH')
+            response = dns.query.udp(query, domain, timeout=3)
+            if response.answer:
+                service_misconfigs.append("CHAOS class queries enabled: may reveal internal DNS details.")
+        except Exception:
+            # No response means CHAOS likely disabled
+            pass
