@@ -1,5 +1,7 @@
 from categories.recon.methods_recon.digital_fingerprinting.find_ports import PortScan
 from ftplib import FTP, error_perm, all_errors, FTP_TLS, error_temp, error_reply
+import requests
+from urllib.parse import urljoin
 import telnetlib3
 import smtplib
 import io
@@ -1826,13 +1828,12 @@ class DNS_Misconfigs:
             DNS_Misconfigs.check_missing_dnssec_validation(dnssec_cat, domain)
             DNS_Misconfigs.check_dns_listening_on_all_interfaces(basic_access_cat, ip_or_domain, port)
             DNS_Misconfigs.check_external_access_to_internal_dns(basic_access_cat, ip_or_domain)
-            DNS_Misconfigs.check_dns_version_exposed(info_disclosure_cat, domain)
-            DNS_Misconfigs.check_chaos_class_enabled(info_disclosure_cat, domain)
+            DNS_Misconfigs.check_dns_version_exposed(info_disclosure_cat, ip_or_domain)
+            DNS_Misconfigs.check_chaos_class_enabled(info_disclosure_cat, ip_or_domain)
 
         return misconfigs
 
     # ------------------ Helper: Resolve domain from IP or domain ------------------
-
     @staticmethod
     def _resolve_zone(ip_or_domain):
         try:
@@ -1850,171 +1851,231 @@ class DNS_Misconfigs:
             return ip_or_domain
 
     # ------------------ Zone Transfer Issues ------------------
+    @staticmethod
+    def _attempt_zone_transfer(ip, domain, timeout):
+        try:
+            xfr = dns.query.xfr(where=ip, zone=domain, timeout=timeout)
+            zone = dns.zone.from_xfr(xfr)
+            return zone
+        except Exception:
+            return None
 
     @staticmethod
     def check_unrestricted_zone_transfer(service_misconfigs, ip, domain, timeout):
-        """
-        Attempt AXFR to detect unrestricted zone transfers.
-        """
-        try:
-            xfr = dns.query.xfr(where=ip, zone=domain, timeout=timeout)
-            zone = dns.zone.from_xfr(xfr)
-            if zone:
-                service_misconfigs.append(
-                    f"Unrestricted zone transfer: DNS server at {ip} allows AXFR for zone '{domain}', exposing internal network structure."
-                )
-        except dns.exception.FormError:
-            pass  # Zone transfer not allowed
-        except Exception:
-            pass
+        zone = DNS_Misconfigs._attempt_zone_transfer(ip, domain, timeout)
+        if zone:
+            service_misconfigs.append(
+                f"Unrestricted zone transfer: DNS server at {ip} allows AXFR for zone '{domain}'."
+            )
 
     @staticmethod
     def check_missing_ip_restrictions(service_misconfigs, ip, domain, timeout):
-        """
-        If zone transfer succeeds, it likely means missing IP restrictions.
-        """
+        zone = DNS_Misconfigs._attempt_zone_transfer(ip, domain, timeout)
+        if zone:
+            service_misconfigs.append(
+                f"Missing IP restrictions on zone transfers: DNS server at {ip} accepted AXFR."
+            )
+
+    # ------------------ Open Resolver ------------------
+    @staticmethod
+    def _send_dns_query(ip, query_name, query_type, recursion=True, timeout=5):
         try:
-            xfr = dns.query.xfr(where=ip, zone=domain, timeout=timeout)
-            zone = dns.zone.from_xfr(xfr)
-            if zone:
-                service_misconfigs.append(
-                    f"Missing IP restrictions on zone transfers: DNS server at {ip} accepted AXFR from this client."
-                )
+            query = dns.message.make_query(query_name, query_type)
+            if recursion:
+                query.flags |= dns.flags.RD
+            response = dns.query.udp(query, ip, timeout=timeout)
+            return response
         except Exception:
-            pass
+            return None
 
     @staticmethod
     def check_open_resolver(service_misconfigs, ip, timeout):
-        """
-        Checks if DNS recursion is enabled for external clients.
-        """
-        try:
-            query = dns.message.make_query("example.com", dns.rdatatype.A)
-            query.flags |= dns.flags.RD  # Recursion Desired
-            response = dns.query.udp(query, ip, timeout=timeout)
-            if response.flags & dns.flags.RA:  # Recursion Available
-                service_misconfigs.append(
-                    f"Open DNS Resolver: DNS server at {ip} allows recursive queries from external clients."
-                )
-        except Exception:
-            pass
+        response = DNS_Misconfigs._send_dns_query(ip, "example.com", dns.rdatatype.A, timeout=timeout)
+        if response and response.flags & dns.flags.RA:
+            service_misconfigs.append(
+                f"Open DNS Resolver: DNS server at {ip} allows recursive queries."
+            )
 
     @staticmethod
     def check_no_ip_restrictions_on_recursion(service_misconfigs, ip, timeout):
-        """
-        If recursion works without IP restriction, add this finding.
-        """
-        try:
-            query = dns.message.make_query("example.org", dns.rdatatype.A)
-            query.flags |= dns.flags.RD
-            response = dns.query.udp(query, ip, timeout=timeout)
-            if response.flags & dns.flags.RA:
-                service_misconfigs.append(
-                    f"No source IP restrictions on recursion: DNS server at {ip} responds to recursive queries from any client."
-                )
-        except Exception:
-            pass
+        response = DNS_Misconfigs._send_dns_query(ip, "example.org", dns.rdatatype.A, timeout=timeout)
+        if response and response.flags & dns.flags.RA:
+            service_misconfigs.append(
+                f"No source IP restrictions on recursion: DNS server at {ip} responds to any client."
+            )
 
     @staticmethod
     def check_dns_amplification_vulnerability(service_misconfigs, ip, timeout):
-        """
-        Tests for DNS amplification by sending a small query and checking for a large response.
-        """
-        try:
-            query = dns.message.make_query(".", dns.rdatatype.ANY)
-            query.flags |= dns.flags.RD
-            request_size = len(query.to_wire())
-            response = dns.query.udp(query, ip, timeout=timeout)
+        response = DNS_Misconfigs._send_dns_query(ip, ".", dns.rdatatype.ANY, timeout=timeout)
+        if response:
+            request_size = len(dns.message.make_query(".", dns.rdatatype.ANY).to_wire())
             response_size = len(response.to_wire())
-            if response_size > request_size * 3:  # Arbitrary threshold for amplification
+            if response_size > request_size * 3:
                 service_misconfigs.append(
                     f"DNS Amplification Vulnerability: Server at {ip} responded with {response_size} bytes for a {request_size}-byte query."
                 )
-        except Exception:
-            pass
 
+    # ------------------ DNSSEC ------------------
     @staticmethod
     def check_dnssec_not_enabled(service_misconfigs, domain):
-        """
-        Check if DNSSEC is enabled for the given domain by looking for DNSKEY records.
-        """
         try:
             answers = dns.resolver.resolve(domain, 'DNSKEY', raise_on_no_answer=False)
             if not answers.rrset:
                 service_misconfigs.append(f"DNSSEC not enabled: No DNSKEY record found for {domain}.")
-        except dns.resolver.NoAnswer:
-            service_misconfigs.append(f"DNSSEC not enabled: No DNSKEY record found for {domain}.")
-        except dns.resolver.NXDOMAIN:
-            service_misconfigs.append(f"Domain {domain} does not exist, cannot check DNSSEC.")
         except Exception:
             service_misconfigs.append(f"Unable to verify DNSSEC enablement for {domain}.")
 
     @staticmethod
     def check_missing_dnssec_validation(service_misconfigs, domain):
-        """
-        Check if DNSSEC validation is possible by attempting to validate RRSIG.
-        """
         try:
-            # Get DNSKEY and RRSIG for the domain
             dnskey = dns.resolver.resolve(domain, 'DNSKEY')
             rrsig = dns.resolver.resolve(domain, 'RRSIG')
-
-            # Verify DNSSEC (basic attempt)
             if not dnskey or not rrsig:
-                service_misconfigs.append(f"Missing DNSSEC validation: Required records (DNSKEY/RRSIG) not found for {domain}.")
-        except dns.resolver.NoAnswer:
-            service_misconfigs.append(f"Missing DNSSEC validation: Required records not available for {domain}.")
+                service_misconfigs.append(f"Missing DNSSEC validation: Required records not found for {domain}.")
         except Exception:
             service_misconfigs.append(f"Unable to verify DNSSEC validation for {domain}.")
 
+    # ------------------ Basic Access ------------------
     @staticmethod
     def check_dns_listening_on_all_interfaces(service_misconfigs, ip, port):
-        """
-        Check if DNS service is bound to 0.0.0.0 (all interfaces).
-        """
-        try:
-            if ip == "0.0.0.0":
-                service_misconfigs.append("DNS service is listening on all interfaces (0.0.0.0): Consider restricting to specific IPs.")
-        except Exception:
-            service_misconfigs.append("Unable to verify if DNS is listening on all interfaces.")
+        if ip == "0.0.0.0":
+            service_misconfigs.append("DNS service is listening on all interfaces (0.0.0.0).")
 
     @staticmethod
     def check_external_access_to_internal_dns(service_misconfigs, ip):
-        """
-        Simple check: If IP is private, but accessible externally, it's a risk.
-        """
-        try:
-            private_ranges = ["10.", "172.", "192.168"]
-            if any(ip.startswith(prefix) for prefix in private_ranges):
-                service_misconfigs.append("External access to internal DNS server detected: Private IP should not be externally accessible.")
-        except Exception:
-            service_misconfigs.append("Unable to determine external access risk for DNS.")
+        private_ranges = ["10.", "172.", "192.168"]
+        if any(ip.startswith(prefix) for prefix in private_ranges):
+            service_misconfigs.append("External access to internal DNS detected: Private IP exposed.")
 
+    # ------------------ Information Disclosure ------------------
     @staticmethod
-    def check_dns_version_exposed(service_misconfigs, domain):
-        """
-        Check if DNS version is exposed via CHAOS TXT query for 'version.bind'.
-        """
+    def check_dns_version_exposed(service_misconfigs, ip):
         try:
             query = dns.message.make_query('version.bind', 'TXT', 'CH')
-            response = dns.query.udp(query, domain, timeout=3)
+            response = dns.query.udp(query, ip, timeout=3)
             if response.answer:
                 version_info = response.answer[0].to_text()
-                service_misconfigs.append(f"DNS server version information exposed: {version_info}")
+                service_misconfigs.append(f"DNS server version exposed: {version_info}")
         except Exception:
-            # If CHAOS query fails, assume it's secure
             pass
 
     @staticmethod
-    def check_chaos_class_enabled(service_misconfigs, domain):
-        """
-        Checks if CHAOS class queries work (indicates information disclosure risk).
-        """
+    def check_chaos_class_enabled(service_misconfigs, ip):
         try:
             query = dns.message.make_query('hostname.bind', 'TXT', 'CH')
-            response = dns.query.udp(query, domain, timeout=3)
+            response = dns.query.udp(query, ip, timeout=3)
             if response.answer:
                 service_misconfigs.append("CHAOS class queries enabled: may reveal internal DNS details.")
         except Exception:
-            # No response means CHAOS likely disabled
+            pass
+
+class HTTP_Misconfigs:
+
+    @staticmethod
+    def HTTP_misconfigs(ip, port, timeout, misconfigs):
+        """
+        Populate misconfigs[service][category] for HTTP/HTTPS service.
+        """
+        service = "http"
+        if service not in misconfigs:
+            misconfigs[service] = {}
+
+        def ensure_category(cat):
+            if cat not in misconfigs[service]:
+                misconfigs[service][cat] = []
+            return misconfigs[service][cat]
+
+        basic_cat = ensure_category("Basic Access Control")
+        info_disclosure_cat = ensure_category("Information Disclosure")
+        security_headers_cat = ensure_category("Security Headers")
+
+        # Base URL
+        scheme = "https" if port in [443, 8443] else "http"
+        base_url = f"{scheme}://{ip}:{port}/"
+
+        # Run checks
+        HTTP_Misconfigs.check_default_pages(info_disclosure_cat, base_url, timeout)
+        HTTP_Misconfigs.check_directory_listing(info_disclosure_cat, base_url, timeout)
+        HTTP_Misconfigs.check_http_methods(info_disclosure_cat, base_url, timeout)
+        HTTP_Misconfigs.check_security_headers(security_headers_cat, base_url, timeout)
+        HTTP_Misconfigs.check_http_server_banner(info_disclosure_cat, base_url, timeout)
+
+        return misconfigs
+
+    # ------------------ Misconfig Checks ------------------
+    @staticmethod
+    def check_default_pages(category_list, base_url, timeout):
+        """
+        Check for common default pages like index.html, admin, readme, etc.
+        """
+        common_pages = ["index.html", "index.php", "admin", "readme.html"]
+        for page in common_pages:
+            try:
+                url = urljoin(base_url, page)
+                resp = requests.get(url, timeout=timeout, verify=False)
+                if resp.status_code == 200:
+                    category_list.append(f"Default page accessible: {url}")
+            except Exception:
+                continue
+
+    @staticmethod
+    def check_directory_listing(category_list, base_url, timeout):
+        """
+        Try accessing base URL or common folders to see if directory listing is enabled.
+        """
+        common_paths = ["", "images/", "css/", "js/"]
+        for path in common_paths:
+            try:
+                url = urljoin(base_url, path)
+                resp = requests.get(url, timeout=timeout, verify=False)
+                if resp.status_code == 200 and "<title>Index of" in resp.text:
+                    category_list.append(f"Directory listing enabled at {url}")
+            except Exception:
+                continue
+
+    @staticmethod
+    def check_http_methods(category_list, base_url, timeout):
+        """
+        Check for unsafe HTTP methods like PUT, DELETE, TRACE.
+        """
+        unsafe_methods = ["PUT", "DELETE", "TRACE", "OPTIONS"]
+        try:
+            resp = requests.options(base_url, timeout=timeout, verify=False)
+            allowed = resp.headers.get("Allow", "")
+            for method in unsafe_methods:
+                if method in allowed:
+                    category_list.append(f"HTTP method {method} allowed at {base_url}")
+        except Exception:
+            pass
+
+    @staticmethod
+    def check_security_headers(category_list, base_url, timeout):
+        """
+        Check if important security headers are missing.
+        """
+        try:
+            resp = requests.get(base_url, timeout=timeout, verify=False)
+            headers = resp.headers
+            if "Strict-Transport-Security" not in headers:
+                category_list.append(f"HSTS header missing at {base_url}")
+            if "X-Frame-Options" not in headers:
+                category_list.append(f"X-Frame-Options header missing at {base_url}")
+            if "X-Content-Type-Options" not in headers:
+                category_list.append(f"X-Content-Type-Options header missing at {base_url}")
+            if "Content-Security-Policy" not in headers:
+                category_list.append(f"CSP header missing at {base_url}")
+        except Exception:
+            pass
+
+    @staticmethod
+    def check_http_server_banner(category_list, base_url, timeout):
+        """
+        Capture server header to detect version info disclosure.
+        """
+        try:
+            resp = requests.get(base_url, timeout=timeout, verify=False)
+            server = resp.headers.get("Server")
+            if server:
+                category_list.append(f"Server header exposed: {server} at {base_url}")
+        except Exception:
             pass
