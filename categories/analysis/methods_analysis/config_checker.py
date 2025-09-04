@@ -1,5 +1,7 @@
 from categories.recon.methods_recon.digital_fingerprinting.find_ports import PortScan
 from ftplib import FTP, error_perm, all_errors, FTP_TLS, error_temp, error_reply
+from collections import defaultdict
+import ssl
 import requests
 from urllib.parse import urljoin
 import telnetlib3
@@ -20,6 +22,7 @@ import dns.message
 import dns.dnssec
 import dns.name
 import dns.flags
+import struct
 
 # ===================== CONFIGURABLE CONSTANTS =====================
 DELAY = 2
@@ -153,17 +156,61 @@ DEFAULT_FTP_BANNERS = [
 ]
 
 
-class Configuration_checker:
-    # --------------------- Entry point ---------------------
+class ConfigChecker:
+
     @staticmethod
-    def run(ip, timeout, retries):
+    def run(all_results, timeout=5):
         """
-        Placeholder orchestrator. Calls port discovery and returns a misconfigs dict.
-        TODO: orchestrate based on scan_results (which ports/services are open).
+        all_results: dict from port scanner
+        Returns misconfigs: dict[ip][service][category] -> list of findings
         """
-        misconfigs = {}
-        scan_results = PortScan.Scan_method_handler(ip, tcp_flags=None, timeout=timeout, retries=retries)
-        # TODO: pick services from scan_results and call appropriate checkers
+        misconfigs = defaultdict(dict)
+
+        for scan_name, scan_results in all_results.items():
+            for result in scan_results:
+                ip = result["ip"]
+                open_ports = result["open_ports"]
+                services = result["services"]
+
+                for port in open_ports:
+                    service = services.get(port, "").lower()
+
+                    # ------------------ FTP ------------------
+                    if port in [20, 21] or "ftp" in service:
+                        FTP_Misconfigs.FTP_misconfigs(ip, port, timeout, misconfigs[ip])
+
+                    # ------------------ SSH ------------------
+                    elif port == 22 or "ssh" in service:
+                        SSH_Misconfigs.SSH_misconfigs(ip, port, timeout, misconfigs[ip])
+
+                    # ------------------ Telnet ------------------
+                    elif port == 23 or "telnet" in service:
+                        Telnet_Misconfigs.Telnet_misconfigs(ip, port, timeout, misconfigs[ip])
+
+                    # ------------------ SMTP ------------------
+                    elif port in [25, 465, 587] or "smtp" in service:
+                        SMTP_Misconfigs.SMTP_misconfigs(ip, port, timeout, misconfigs[ip])
+                    
+                    # ------------------ DNS ------------------
+                    elif port == 53 or "dns" in service:
+                        DNS_Misconfigs.DNS_misconfigs(ip, port, timeout, misconfigs[ip])
+
+                    # ------------------ HTTP/HTTPS ------------------
+                    elif port in [80, 443, 8080, 8443, 8000, 8888, 9000] or "http" in service:
+                        HTTP_Misconfigs.HTTP_misconfigs(ip, port, timeout, misconfigs[ip])
+
+                    # ------------------ POP3 ------------------
+                    elif port in [110, 995] or "pop3" in service:
+                        POP3_Misconfigs.POP3_misconfigs(ip, port, timeout, misconfigs[ip])
+
+                    # ------------------ IMAP ------------------
+                    elif port in [143, 993] or "imap" in service:
+                        IMAP_Misconfigs.IMAP_misconfigs(ip, port, timeout, misconfigs[ip])
+
+                    # ------------------ NNTP / NTP ------------------
+                    elif port in [119] or "nntp" in service or port == 123 or "ntp" in service:
+                        NNTP_NTP_Misconfigs.check(ip, timeout, misconfigs[ip])
+
         return misconfigs
 
 class FTP_Misconfigs:
@@ -2077,5 +2124,245 @@ class HTTP_Misconfigs:
             server = resp.headers.get("Server")
             if server:
                 category_list.append(f"Server header exposed: {server} at {base_url}")
+        except Exception:
+            pass
+
+class POP3_Misconfigs:
+
+    @staticmethod
+    def POP3_misconfigs(ip, port, timeout, misconfigs):
+        """
+        Populate misconfigs[service][category] for POP3 service.
+        """
+        service = "pop3"
+        if service not in misconfigs:
+            misconfigs[service] = {}
+
+        def ensure_category(cat):
+            if cat not in misconfigs[service]:
+                misconfigs[service][cat] = []
+            return misconfigs[service][cat]
+
+        banner_cat = ensure_category("Banner Disclosure")
+        encryption_cat = ensure_category("Encryption Issues")
+        auth_cat = ensure_category("Authentication Issues")
+
+        POP3_Misconfigs.check_banner(banner_cat, ip, port, timeout)
+        POP3_Misconfigs.check_starttls_support(encryption_cat, ip, port, timeout)
+        POP3_Misconfigs.check_anonymous_login(auth_cat, ip, port, timeout)
+
+        return misconfigs
+
+    # ------------------ Misconfig Checks ------------------
+    @staticmethod
+    def check_banner(category_list, ip, port, timeout):
+        """
+        Capture the POP3 banner to detect version disclosure.
+        """
+        try:
+            with socket.create_connection((ip, port), timeout=timeout) as sock:
+                banner = sock.recv(1024).decode(errors="ignore").strip()
+                if banner:
+                    category_list.append(f"POP3 server banner exposed: '{banner}' at {ip}:{port}")
+        except Exception:
+            pass
+
+    @staticmethod
+    def check_starttls_support(category_list, ip, port, timeout):
+        """
+        Check if the server supports STARTTLS (on port 110).
+        """
+        if port != 110:
+            return  # STARTTLS is for plaintext POP3, not POP3S
+        try:
+            with socket.create_connection((ip, port), timeout=timeout) as sock:
+                sock.recv(1024)  # Banner
+                sock.sendall(b"STLS\r\n")
+                response = sock.recv(1024).decode(errors="ignore")
+                if "+OK" not in response.upper():
+                    category_list.append(f"STARTTLS not supported on POP3 server {ip}:{port}")
+        except Exception:
+            pass
+
+    @staticmethod
+    def check_anonymous_login(category_list, ip, port, timeout):
+        """
+        Try logging in with empty credentials to detect misconfigured servers.
+        """
+        try:
+            with socket.create_connection((ip, port), timeout=timeout) as sock:
+                sock.recv(1024)  # Banner
+                sock.sendall(b"USER anonymous\r\n")
+                resp_user = sock.recv(1024).decode(errors="ignore")
+                sock.sendall(b"PASS anonymous\r\n")
+                resp_pass = sock.recv(1024).decode(errors="ignore")
+
+                if "+OK" in resp_user.upper() or "+OK" in resp_pass.upper():
+                    category_list.append(f"Anonymous login allowed on POP3 server {ip}:{port}")
+        except Exception:
+            pass
+
+class IMAP_Misconfigs:
+
+    @staticmethod
+    def IMAP_misconfigs(ip, port, timeout, misconfigs):
+        """
+        Populate misconfigs[service][category] for IMAP service.
+        """
+        service = "imap"
+        if service not in misconfigs:
+            misconfigs[service] = {}
+
+        def ensure_category(cat):
+            if cat not in misconfigs[service]:
+                misconfigs[service][cat] = []
+            return misconfigs[service][cat]
+
+        banner_cat = ensure_category("Banner Disclosure")
+        encryption_cat = ensure_category("Encryption Issues")
+        auth_cat = ensure_category("Authentication Issues")
+
+        IMAP_Misconfigs.check_banner(banner_cat, ip, port, timeout)
+        IMAP_Misconfigs.check_starttls_support(encryption_cat, ip, port, timeout)
+        IMAP_Misconfigs.check_anonymous_login(auth_cat, ip, port, timeout)
+
+        return misconfigs
+
+    # ------------------ Misconfig Checks ------------------
+    @staticmethod
+    def check_banner(category_list, ip, port, timeout):
+        """
+        Capture IMAP banner (initial server greeting).
+        """
+        try:
+            with socket.create_connection((ip, port), timeout=timeout) as sock:
+                banner = sock.recv(1024).decode(errors="ignore").strip()
+                if banner:
+                    category_list.append(f"IMAP server banner exposed: '{banner}' at {ip}:{port}")
+        except Exception:
+            pass
+
+    @staticmethod
+    def check_starttls_support(category_list, ip, port, timeout):
+        """
+        Check if STARTTLS is supported (only valid for port 143).
+        """
+        if port != 143:
+            return
+        try:
+            with socket.create_connection((ip, port), timeout=timeout) as sock:
+                sock.recv(1024)  # Banner
+                sock.sendall(b". CAPABILITY\r\n")
+                response = sock.recv(2048).decode(errors="ignore")
+                if "STARTTLS" not in response.upper():
+                    category_list.append(f"STARTTLS not supported on IMAP server {ip}:{port}")
+        except Exception:
+            pass
+
+    @staticmethod
+    def check_anonymous_login(category_list, ip, port, timeout):
+        """
+        Try logging in with anonymous credentials.
+        """
+        try:
+            with socket.create_connection((ip, port), timeout=timeout) as sock:
+                sock.recv(1024)  # Banner
+                sock.sendall(b'a LOGIN anonymous anonymous\r\n')
+                response = sock.recv(1024).decode(errors="ignore")
+                if "OK" in response.upper():
+                    category_list.append(f"Anonymous login allowed on IMAP server {ip}:{port}")
+        except Exception:
+            pass
+
+class NNTP_NTP_Misconfigs:
+
+    @staticmethod
+    def check(ip, timeout, misconfigs):
+        """
+        Run misconfig checks for NNTP (119) and NTP (123).
+        """
+        service = "nntp_ntp"
+        if service not in misconfigs:
+            misconfigs[service] = {}
+
+        def ensure_category(cat):
+            if cat not in misconfigs[service]:
+                misconfigs[service][cat] = []
+            return misconfigs[service][cat]
+
+        nntp_cat = ensure_category("NNTP Issues")
+        ntp_cat = ensure_category("NTP Issues")
+
+        # NNTP (port 119)
+        NNTP_NTP_Misconfigs.check_nntp_banner(nntp_cat, ip, 119, timeout)
+        NNTP_NTP_Misconfigs.check_nntp_open_access(nntp_cat, ip, 119, timeout)
+
+        # NTP (port 123)
+        NNTP_NTP_Misconfigs.check_ntp_monlist(ntp_cat, ip, timeout)
+        NNTP_NTP_Misconfigs.check_ntp_info_leak(ntp_cat, ip, timeout)
+
+        return misconfigs
+
+    # ------------------ NNTP ------------------
+    @staticmethod
+    def check_nntp_banner(category_list, ip, port, timeout):
+        """
+        Connect to NNTP and grab banner.
+        """
+        try:
+            with socket.create_connection((ip, port), timeout=timeout) as sock:
+                banner = sock.recv(1024).decode(errors="ignore").strip()
+                if banner:
+                    category_list.append(f"NNTP banner exposed at {ip}:{port} → {banner}")
+        except Exception:
+            pass
+
+    @staticmethod
+    def check_nntp_open_access(category_list, ip, port, timeout):
+        """
+        Try to see if NNTP allows unauthenticated usage (e.g., LIST).
+        """
+        try:
+            with socket.create_connection((ip, port), timeout=timeout) as sock:
+                sock.recv(1024)  # Banner
+                sock.sendall(b"LIST\r\n")
+                response = sock.recv(1024).decode(errors="ignore")
+                if "215" in response:  # 215 = list of groups
+                    category_list.append(f"NNTP allows unauthenticated LIST command at {ip}:{port}")
+        except Exception:
+            pass
+
+    # ------------------ NTP ------------------
+    @staticmethod
+    def check_ntp_monlist(category_list, ip, timeout):
+        """
+        Check if NTP responds to a monlist request (old vuln).
+        """
+        try:
+            # Mode 7 packet: monlist request (opcode 42)
+            pkt = b"\x17\x00\x03\x2a" + 12 * b"\x00"
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                sock.settimeout(timeout)
+                sock.sendto(pkt, (ip, 123))
+                data, _ = sock.recvfrom(1024)
+                if data:
+                    category_list.append(f"NTP monlist enabled on {ip}:123 (vulnerable to amplification).")
+        except Exception:
+            pass
+
+    @staticmethod
+    def check_ntp_info_leak(category_list, ip, timeout):
+        """
+        Check if NTP responds to a mode 6 read variables request.
+        """
+        try:
+            # Mode 6 control message: read variables
+            pkt = struct.pack("!HHHHHH", 0x1600, 0, 0, 0, 0, 0)
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                sock.settimeout(timeout)
+                sock.sendto(pkt, (ip, 123))
+                data, _ = sock.recvfrom(1024)
+                if data:
+                    category_list.append(f"NTP server at {ip}:123 responded to control query (info leak).")
         except Exception:
             pass
