@@ -1,7 +1,6 @@
 import ipaddress
-from categories.analysis.methods_analysis import config_checker, default_creds_checker
-
-valid_methods = ['confc', 'defcc', 'all']
+from categories.analysis.methods_analysis.config_checker import ConfigChecker
+from categories.recon.methods_recon.digital_fingerprinting.find_ports import PortScan
 
 def validate_ip_range(ip_range):
     try:
@@ -13,15 +12,22 @@ def validate_ip_range(ip_range):
     
 def run(args):
 
-    results = {}
-
-    if args.method not in valid_methods:
-        print("[!] Invalid method. Choose from: confc, defcc, all")
-        return
-
     if not validate_ip_range(args.range):
         return
     
-    if args.method in ['confc', 'all']:
-        print("Running config checking...")
-        results['confc'] = config_checker.run()
+    print("Running config checking...")
+    try:
+        tcp_flags = PortScan.parse_tcp_flags(args.extra)
+        if tcp_flags is None:
+            class DummyFlags:
+                stealth = False
+                fin = False
+                ack = False
+                xmas = False
+                aggressive = False
+            tcp_flags = DummyFlags()
+        port_results = PortScan.Scan_method_handler(args.range, tcp_flags, args.timeout, args.retries)
+    except Exception as e:
+        print(f"Error during port scanning: {e}")
+    if port_results:
+        results = ConfigChecker.run(port_results)
