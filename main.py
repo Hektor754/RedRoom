@@ -1,6 +1,6 @@
 from core.cli import parse_args
 from categories.recon import hostscan,hostprofile,dnsenum,traceroute,subenum,portscan
-from categories.analysis import cvelookup,webscanner
+from categories.analysis import cvelookup,webscanner,misconfig_detector
 from Essentials.utils import print_welcome_stamp
 import sys
 
@@ -16,7 +16,7 @@ def main():
     args = parse_args()
 
     valid_categories = {"recon","analysis"}
-    valid_tools = {"hostscan","hostprofile","dnsenum","traceroute","subenum","portscan","cvelookup","webscanner","misconfdetector"}
+    valid_tools = {"hostscan","hostprofile","dnsenum","traceroute","subenum","portscan","cvelookup","webscanner","mcdetect"}
 
     if args.category not in valid_categories:
         print(f"[!] Error: Invalid category '{args.category}'. Valid options: {', '.join(valid_categories)}")
@@ -66,6 +66,11 @@ def main():
         elif args.tool == "webscanner":
             try:
                 webscanner.run(args)
+            except Exception as e:
+                print(f"[!] Unexpected error during CVE lookup: {e}")
+        elif args.tool == "mcdetect":
+            try:
+                misconfig_detector.run(args)
             except Exception as e:
                 print(f"[!] Unexpected error during CVE lookup: {e}")
                 
