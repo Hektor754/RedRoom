@@ -155,7 +155,6 @@ DEFAULT_FTP_BANNERS = [
     "serv-u",          
 ]
 
-
 class ConfigChecker:
 
     @staticmethod
@@ -172,8 +171,17 @@ class ConfigChecker:
                 open_ports = result["open_ports"]
                 services = result["services"]
 
+                # 🔧 Build {port: banner.lower()} for easy lookup
+                service_map = {}
+                for svc in services:
+                    port_num = svc.get("port")
+                    banner = str(svc.get("banner", "")).lower()
+                    if port_num is not None:
+                        service_map[port_num] = banner
+
+                # ------------------ Loop over open ports ------------------
                 for port in open_ports:
-                    service = services.get(port, "").lower()
+                    service = service_map.get(port, "")
 
                     # ------------------ FTP ------------------
                     if port in [20, 21] or "ftp" in service:
@@ -188,9 +196,9 @@ class ConfigChecker:
                         Telnet_Misconfigs.Telnet_misconfigs(ip, port, timeout, misconfigs[ip])
 
                     # ------------------ SMTP ------------------
-                    elif port in [25, 465, 587] or "smtp" in service:
+                    elif port in [25, 465, 587] or "smtp" in service or "esmtp" in service:
                         SMTP_Misconfigs.SMTP_misconfigs(ip, port, timeout, misconfigs[ip])
-                    
+
                     # ------------------ DNS ------------------
                     elif port == 53 or "dns" in service:
                         DNS_Misconfigs.DNS_misconfigs(ip, port, timeout, misconfigs[ip])
@@ -208,7 +216,7 @@ class ConfigChecker:
                         IMAP_Misconfigs.IMAP_misconfigs(ip, port, timeout, misconfigs[ip])
 
                     # ------------------ NNTP / NTP ------------------
-                    elif port in [119] or "nntp" in service or port == 123 or "ntp" in service:
+                    elif port == 119 or "nntp" in service or port == 123 or "ntp" in service:
                         NNTP_NTP_Misconfigs.check(ip, timeout, misconfigs[ip])
 
         return misconfigs
@@ -2059,7 +2067,7 @@ class HTTP_Misconfigs:
         for page in common_pages:
             try:
                 url = urljoin(base_url, page)
-                resp = requests.get(url, timeout=timeout, verify=False)
+                resp = requests.get(url, timeout=timeout, verify=True)
                 if resp.status_code == 200:
                     category_list.append(f"Default page accessible: {url}")
             except Exception:
@@ -2074,7 +2082,7 @@ class HTTP_Misconfigs:
         for path in common_paths:
             try:
                 url = urljoin(base_url, path)
-                resp = requests.get(url, timeout=timeout, verify=False)
+                resp = requests.get(url, timeout=timeout, verify=True)
                 if resp.status_code == 200 and "<title>Index of" in resp.text:
                     category_list.append(f"Directory listing enabled at {url}")
             except Exception:
@@ -2087,7 +2095,7 @@ class HTTP_Misconfigs:
         """
         unsafe_methods = ["PUT", "DELETE", "TRACE", "OPTIONS"]
         try:
-            resp = requests.options(base_url, timeout=timeout, verify=False)
+            resp = requests.options(base_url, timeout=timeout, verify=True)
             allowed = resp.headers.get("Allow", "")
             for method in unsafe_methods:
                 if method in allowed:
@@ -2101,7 +2109,7 @@ class HTTP_Misconfigs:
         Check if important security headers are missing.
         """
         try:
-            resp = requests.get(base_url, timeout=timeout, verify=False)
+            resp = requests.get(base_url, timeout=timeout, verify=True)
             headers = resp.headers
             if "Strict-Transport-Security" not in headers:
                 category_list.append(f"HSTS header missing at {base_url}")
@@ -2120,7 +2128,7 @@ class HTTP_Misconfigs:
         Capture server header to detect version info disclosure.
         """
         try:
-            resp = requests.get(base_url, timeout=timeout, verify=False)
+            resp = requests.get(base_url, timeout=timeout, verify=True)
             server = resp.headers.get("Server")
             if server:
                 category_list.append(f"Server header exposed: {server} at {base_url}")
