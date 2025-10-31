@@ -4,6 +4,7 @@ from itertools import zip_longest
 import csv
 import json
 import os
+import sys
 import socket
 import ipaddress
 import ifaddr
@@ -67,6 +68,116 @@ def print_welcome_stamp():
     print(author)
     print()
     print(quote)
+
+def clear_console():
+    if os.name == "nt":
+        os.system("cls")
+    else:
+        os.system("clear")
+
+def handle_maestro_ui():
+    logo = r"""
+                                                                 
+                                                                 
+                    ░░░░░░░░░▒░▒░░░░                                ░░░░░░            
+                    ░▓▓▓▓███▓▓█▓█▓▓▓▓▒▒▒░░                         ░░▒▒▒▒░░░░           
+                    ▒▓█████▓▓████▓██████▓▒▒░░░░░░░░       ░ ░░░▒▒▒▒▓▓▓▒▓▓▒░░░   
+                        ░▒░▒▒▒▒▒▒▒▓▓▒▓▓▒▒▓▒▒▒▓▓▓▓▓▓▓▒▓▒▓▒▒▓█▓▓▓██▓▓▓█▓▒▒░░░░  
+                        ░░▒▓▓▒█████████▓▒▒▒▓▓▓█████████▓█████▓███▓███▓▓▓▓▓▒░░   
+                    ░▒▒▒▓█████▒▓██▒░▒▓▓▓████▓██████████████████▓████▓▓▓▓░▒▒   
+                    ░░▒▒▓█████▓▒▒▒▒▒▒▓█▓████▓█▓█████████████████▓█████▓▓▓▒▒▒░░░  
+                ░▒▒▓██▓▓▓▒▒  ▒▒▓▓▓█████▓▒▒▒▒░▒▓███████▓████▓████▓▓▓▓▓▓▓▒▒▒▒▒░  
+                ░▓█████▒░  ░ ▒▒██▓▓▒▓▒▒▓██░ ▒░  ░▒███▓▓▓███▓██▓▓▒▓▓▓▓█▓▓▒▒▒░    
+                ▒▒▒░     ░░▒████▒░▒▓█▓▒░  ▒     ░▓▒▓██████▓▓▓▓▒▒▒░░▒▒▒▒▒░░░   
+                            ░▒▓███▓░░▓██▒▒░  ░░ ░▒▒▒▒██▓█████▓▓▓▒░      ░░░░     
+                            ▒▓██▓▒░▒▓█▓▒ ▒░  ░▓░▒▓█████▓████▒░░░░                
+                        ░▒█▓▒░░░▓▒▒░  ░░▒▓▓▒█████▓▓▓░░▒▒░  ░▒░                
+                        ░▓███▒░░▒  ░░ ░▒████▓███▒░░░  ▒░░  ░░░                
+                        ▒▓███░░▒▒  ░▒░▒█████░░     ░ ░░░░  ░░░                
+                        ▒▓▓▒░  ▒░   ▓ ░▒▓▒  ▒      ▒ ░░░░  ░▒                 
+                            ░░ ░░░  ▒  ░▒   ▒      ▒ ▒░░░  ░▒                 
+                            ░░ ░▒░  ░   ▒   ░      ░░░░ ░  ░░                 
+                                ▒  ▓░  ░░  ░░░▒▒▒░     ░░ ░░  ░▒░                
+                                ▒  ▒▒  ░▒  ░▒▓███▓▒   ░▒░  ▒  ░░░                
+                                ▒  ░▒  ░▒  ░▓████▓▒   ░▓▒ ░▒  ░░                 
+                                ▒  ░▒  ░░   ▒▓███▓▒    ▒░  ▒  ▒▓░                
+                            ░▒█▓░ ░░  ░    ▒▓██▒     ░░ ░▒░▒▓▓▒░               
+                            ░▒▓█▓█▓▒░░  ░░  ░░▒▒▒▓▓░▒▒░▒░  ▒▓██▓█▓░              
+                            ▒██░░▒██▓▒░▒▒▓▓█▓▒█████▓█████▓▒▓██░░██▓░             
+                        ░▒▓▓░   ▒█▓▒████▓▒▒███████▒░▒▒▓▓▒█▓░  ▒▓▓▒             
+                        ▒██░     ░▒▓░░░   ▒█████▓▓▒      ░░    ▒██▒            
+                                            ░▓██████▒              ░░            
+                                            ░▒▒▓▓▓▒░                            
+                                            ░▒▒▓██▓█▓░                           
+                                            ▒▓█████▓▓░                           
+                                            ░▓▓▓▓▓▒▒▓▒                           
+                                            ░░░▒▒░▒░░░                           
+
+    ░▒▓██████████████▓▒░ ░▒▓██████▓▒░░▒▓████████▓▒░░▒▓███████▓▒░▒▓████████▓▒░▒▓███████▓▒░ ░▒▓██████▓▒░  
+    ░▒▓█▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░         ░▒▓█▓▒░   ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ 
+    ░▒▓█▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░         ░▒▓█▓▒░   ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ 
+    ░▒▓█▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓████████▓▒░▒▓██████▓▒░  ░▒▓██████▓▒░   ░▒▓█▓▒░   ░▒▓███████▓▒░░▒▓█▓▒░░▒▓█▓▒░ 
+    ░▒▓█▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░             ░▒▓█▓▒░  ░▒▓█▓▒░   ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ 
+    ░▒▓█▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░             ░▒▓█▓▒░  ░▒▓█▓▒░   ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ 
+    ░▒▓█▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓████████▓▒░▒▓███████▓▒░   ░▒▓█▓▒░   ░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░  
+                                                                                                        
+    """
+    available_options = list(range(1, 9))
+    selection = """ 1) SQL Injection
+                    2) Malware Attack
+                    3) Phishing Attack
+                    4) Brute Attack
+                    5) Dos Attack
+                    6) File Uploads
+                    7) API / Mobile Backends
+                    8) Post‑Exploitation (payloads)
+                """
+    
+    while True:
+        clear_console()
+        print(logo)
+        print(selection)
+
+        try:
+            user_input = input("Select one (press a number from 1 to 8): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nInput cancelled.")
+            return None
+
+        try:
+            choice = int(user_input)
+        except ValueError:
+            print("Please enter a number 1–8. Press Enter to try again.")
+            input()
+            continue
+
+        if choice not in available_options:
+            print("Choice out of range — press Enter to try again.")
+            input()
+            continue
+
+        clear_console()
+        if choice == 1:
+            print("1. Attack with a provided payload")
+            print("2. Create custom payload")
+            try:
+                choice1_input = input("Select one: ")
+            except (EOFError, KeyboardInterrupt):
+                print("\nInput cancelled.")
+                return None
+            try:
+                sql_inj_choice = int(choice1_input)
+            except ValueError:
+                print("Please pick a number between 1 or 2. Press Enter to try again.")
+                input()
+                continue
+
+            if sql_inj_choice != (1 or 2):
+                print("Choice out of range — press Enter to try again.")
+                input()
+                continue
+
+        return choice
 
 def print_tech_results(results):
     if not results:
