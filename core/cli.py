@@ -86,8 +86,14 @@ def get_parser():
 
     misconfdetector = analysis_subparsers.add_parser('mcdetect', help='Perform a misconfig detection scan')
     misconfdetector.add_argument('-r', '--range', required=True, help='Target IP')
-    add_common_args(misconfdetector)    
+    add_common_args(misconfdetector)
 
+    # ------------------- EXPLOIT -------------------
+
+    exploit_parser = subparsers.add_parser('exploit', help='Exploit tools')
+    exploit_subparsers = exploit_parser.add_subparsers(dest='tool', required=True, help='Exploit tool')
+    maestro = exploit_subparsers.add_parser('Maestro', help='Perform CVE lookup on target(s)')
+    
     return parser
 
 def parse_args():
