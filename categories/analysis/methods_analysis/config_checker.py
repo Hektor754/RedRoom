@@ -1,7 +1,6 @@
 from categories.recon.methods_recon.digital_fingerprinting.find_ports import PortScan
 from ftplib import FTP, error_perm, all_errors, FTP_TLS, error_temp, error_reply
 from collections import defaultdict
-import ssl
 import requests
 from urllib.parse import urljoin
 import telnetlib3
