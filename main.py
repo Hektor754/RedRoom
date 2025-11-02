@@ -1,6 +1,7 @@
 from core.cli import parse_args
 from categories.recon import hostscan,hostprofile,dnsenum,traceroute,subenum,portscan
 from categories.analysis import cvelookup,webscanner,misconfig_detector
+from categories.exploit import sql_injection_handler
 from Essentials.utils import print_welcome_stamp, handle_maestro_ui
 import sys
 
@@ -75,7 +76,10 @@ def main():
                 print(f"[!] Unexpected error during CVE lookup: {e}")
     elif args.category == "exploit":
         if args.tool == "Maestro":
-            handle_maestro_ui
+            choice = handle_maestro_ui
+            if choice == 1:
+                sql_injection_handler
+
             
                 
 
