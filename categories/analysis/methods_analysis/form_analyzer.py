@@ -9,6 +9,7 @@ import logging
 import time
 from urllib.parse import urljoin, urlparse
 import re
+import certifi
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -225,157 +226,115 @@ def analyze_form(form, url):
         "uses_https": action and action.startswith('https://') if action else False
     }
 
-def run(base_url, file, timeout=5, retries=3, user_agent=None, rate_limit=0.5, max_content_size=5*1024*1024):
+def run(base_url=None, file=None, timeout=5, retries=3, session=None,
+        user_agent=None, rate_limit=0.5, max_content_size=5*1024*1024):
     results = []
-    stats = {
-        'total_urls': 0,
-        'successful_requests': 0,
-        'failed_requests': 0,
-        'forms_found': 0
-    }
 
+    # Ensure session exists and is configured
+    if session is None:
+        session = create_session_with_retries(retries)
+    # For lab/testing convenience, disable certificate verification to avoid
+    # CERTIFICATE_VERIFY_FAILED errors on self-signed or incomplete chains.
+    # Remove or change this in production if you want strict verification.
+    session.verify = certifi.where()
+
+    # Set / normalize user agent
+    if user_agent is None:
+        user_agent = 'FormAnalyzer/2.0 (Educational purposes)'
+    session.headers.update({
+        'User-Agent': user_agent,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+    })
+
+    # Build target URL list
+    target_urls = []
     if file:
-        data = load_urls_from_file(file)
-        if not data:
-            return results, stats
-        
-        # Validate URLs
-        data = [validate_url(url) for url in data]
-        data = [url for url in data if url is not None]
-        
-        stats['total_urls'] = len(data)
-
-        session = create_session_with_retries(retries)
-        if user_agent is None:
-            user_agent = 'FormAnalyzer/2.0 (Educational purposes)'
-        session.headers.update({
-            'User-Agent': user_agent,
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-        })
-
-        for i, url in enumerate(data):
-            try:
-                logger.info(f"Processing {i+1}/{len(data)}: {url}")
-                
-                response = session.get(url, timeout=timeout, stream=True)
-                
-                # Check content size
-                content_length = response.headers.get('content-length')
-                if content_length and int(content_length) > max_content_size:
-                    logger.warning(f"Content too large for {url}: {content_length} bytes")
-                    continue
-
-                if response.status_code != 200:
-                    stats['failed_requests'] += 1
-                    continue
-
-                content_type = response.headers.get('Content-Type', '')
-                if 'text/html' not in content_type:
-                    stats['failed_requests'] += 1
-                    continue
-
-                html_content = response.text
-                if len(html_content) > max_content_size:
-                    logger.warning(f"HTML content too large for {url}")
-                    continue
-
-                try:
-                    soup = BeautifulSoup(html_content, 'html.parser')
-                except Exception as e:
-                    logger.warning(f"Error parsing HTML from {url}: {e}")
-                    stats['failed_requests'] += 1
-                    continue
-
-                # Get page title for context
-                page_title = soup.find('title')
-                page_title = page_title.get_text(strip=True) if page_title else 'No title'
-
-                forms = soup.find_all('form')
-                stats['forms_found'] += len(forms)
-                
-                for i, form in enumerate(forms):
-                    form_data = analyze_form(form, url)
-                    
-                    results.append({
-                        "url": url,
-                        "page_title": page_title,
-                        "form_index": i,
-                        **form_data
-                    })
-
-                stats['successful_requests'] += 1
-                
-                # Rate limiting with exponential backoff for errors
-                time.sleep(rate_limit)
-                
-            except requests.RequestException as e:
-                logger.warning(f"Request failed for {url}: {e}")
-                stats['failed_requests'] += 1
-                # Exponential backoff on errors
-                time.sleep(min(rate_limit * 2, 5.0))
-    else:
-        # Single URL processing
-        base_url = validate_url(base_url)
-        if not base_url:
-            logger.error(f"Invalid URL: {base_url}")
-            return results, stats
-            
-        stats['total_urls'] = 1
-        
-        session = create_session_with_retries(retries)
-        if user_agent is None:
-            user_agent = 'FormAnalyzer/2.0 (Educational purposes)'
-        session.headers.update({
-            'User-Agent': user_agent,
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-        })
-
         try:
-            response = session.get(base_url, timeout=timeout, stream=True)
-            
-            # Check content size
-            content_length = response.headers.get('content-length')
-            if content_length and int(content_length) > max_content_size:
-                logger.warning(f"Content too large: {content_length} bytes")
-                return results, stats
-            
-            if response.status_code == 200 and 'text/html' in response.headers.get('Content-Type', ''):
-                html_content = response.text
-                if len(html_content) > max_content_size:
-                    logger.warning("HTML content too large")
-                    return results, stats
-                
+            data = load_urls_from_file(file)
+        except Exception as e:
+            logger.warning(f"Error loading URL file {file}: {e}")
+            return results
+
+        # normalize and validate URLs
+        for u in data:
+            validated = validate_url(u)
+            if validated:
+                target_urls.append(validated)
+    elif base_url:
+        validated = validate_url(base_url)
+        if validated:
+            target_urls.append(validated)
+        else:
+            logger.error(f"Invalid URL provided: {base_url}")
+            return results
+    else:
+        # Nothing to do
+        logger.error("No base_url or file provided to form_analyzer.run()")
+        return results
+
+    # Iterate URLs and extract forms
+    for idx, url in enumerate(target_urls):
+        try:
+            logger.info(f"Processing ({idx+1}/{len(target_urls)}): {url}")
+            resp = session.get(url, timeout=timeout, stream=True, verify=False)
+            print(resp.text[:1000])
+
+            # Basic response checks
+            if resp.status_code != 200:
+                logger.warning(f"Non-200 status for {url}: {resp.status_code}")
+                continue
+
+            content_type = resp.headers.get('Content-Type', '')
+            if 'text/html' not in content_type:
+                logger.warning(f"Non-HTML content at {url}: {content_type}")
+                continue
+
+            # Protect against enormous responses
+            html_content = resp.text
+            if len(html_content) > max_content_size:
+                logger.warning(f"HTML content too large for {url} ({len(html_content)} bytes)")
+                continue
+
+            # Parse HTML
+            try:
+                soup = BeautifulSoup(html_content, 'html.parser')
+            except Exception as e:
+                logger.warning(f"Error parsing HTML from {url}: {e}")
+                continue
+
+            page_title_tag = soup.find('title')
+            page_title = page_title_tag.get_text(strip=True) if page_title_tag else 'No title'
+
+            forms = soup.find_all('form')
+            if not forms:
+                logger.debug(f"No forms found at {url}")
+            for form_index, form in enumerate(forms):
                 try:
-                    soup = BeautifulSoup(html_content, 'html.parser')
+                    form_data = analyze_form(form, url)
+
+                    # Defensive sanity: ensure inputs is a list
+                    if not isinstance(form_data.get("inputs", []), list):
+                        logger.warning(f"Form inputs not a list at {url}, index {form_index}. Skipping.")
+                        continue
+
+                    # Return the form dict directly (structure expected by fuzzers)
+                    results.append(form_data)
+
                 except Exception as e:
-                    logger.warning(f"Error parsing HTML from {base_url}: {e}")
-                    stats['failed_requests'] += 1
-                    return results, stats
+                    logger.warning(f"Error analyzing form at {url} index {form_index}: {e}")
+                    continue
 
-                # Get page title for context
-                page_title = soup.find('title')
-                page_title = page_title.get_text(strip=True) if page_title else 'No title'
+            # polite rate limit between requests
+            time.sleep(rate_limit)
 
-                forms = soup.find_all('form')
-                stats['forms_found'] = len(forms)
-                
-                for i, form in enumerate(forms):
-                    form_data = analyze_form(form, base_url)
-                    
-                    results.append({
-                        "url": base_url,
-                        "page_title": page_title,
-                        "form_index": i,
-                        **form_data
-                    })
-                
-                stats['successful_requests'] = 1
-            else:
-                logger.warning(f"Non-HTML content or bad status code at {base_url}")
-                stats['failed_requests'] = 1
         except requests.RequestException as e:
-            logger.warning(f"Request failed for {base_url}: {e}")
-            stats['failed_requests'] = 1
-        
-    return results, stats
+            logger.warning(f"Request failed for {url}: {e}")
+            # small backoff on error
+            time.sleep(min(rate_limit * 2, 5.0))
+            continue
+        except Exception as e:
+            logger.warning(f"Unexpected error when processing {url}: {e}")
+            continue
+
+    return results
 
