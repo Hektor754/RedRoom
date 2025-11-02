@@ -122,15 +122,13 @@ def handle_maestro_ui():
     ░▒▓█▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓████████▓▒░▒▓███████▓▒░   ░▒▓█▓▒░   ░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░  
                                                                                                         
     """
-    available_options = list(range(1, 9))
-    selection = """ 1) SQL Injection
-                    2) Malware Attack
+    available_options = list(range(1, 7))
+    selection = """ 1) DoS Attack
+                    2) MITM Attack
                     3) Phishing Attack
                     4) Brute Attack
-                    5) Dos Attack
-                    6) File Uploads
-                    7) API / Mobile Backends
-                    8) Post‑Exploitation (payloads)
+                    5) XSS Injection
+                    6) SQL Injection
                 """
     
     while True:
@@ -157,25 +155,6 @@ def handle_maestro_ui():
             continue
 
         clear_console()
-        if choice == 1:
-            print("1. Attack with a provided payload")
-            print("2. Create custom payload")
-            try:
-                choice1_input = input("Select one: ")
-            except (EOFError, KeyboardInterrupt):
-                print("\nInput cancelled.")
-                return None
-            try:
-                sql_inj_choice = int(choice1_input)
-            except ValueError:
-                print("Please pick a number between 1 or 2. Press Enter to try again.")
-                input()
-                continue
-
-            if sql_inj_choice != (1 or 2):
-                print("Choice out of range — press Enter to try again.")
-                input()
-                continue
 
         return choice
 
