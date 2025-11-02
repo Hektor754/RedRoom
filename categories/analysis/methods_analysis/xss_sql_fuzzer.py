@@ -9,6 +9,8 @@ import requests
 from urllib.parse import urljoin
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from categories.analysis.methods_analysis import form_analyzer
+import certifi
+import random
 
 SQL_PAYLOADS = {
     "error_based": [
@@ -186,7 +188,15 @@ def analyze_response(response, payload, response_time):
     
     return indicators, confidence
 
-def test_single_payload(form, base_url, field_name, payload, category, timeout, session):
+def test_single_payload(form, base_url, field_name, payload, category, timeout, session, delay=0.0):
+    """
+    Send a single payload. Applies a small random jitter (0..delay) before issuing
+    the request so concurrent workers don't hit the target all at once.
+    """
+    # small random jitter to avoid synchronized bursts from workers
+    if delay and delay > 0:
+        time.sleep(random.uniform(0, delay))
+
     action = form.get("action", "")
     method = form.get("method", "get").lower()
     full_url = urljoin(base_url, action)
@@ -197,7 +207,7 @@ def test_single_payload(form, base_url, field_name, payload, category, timeout, 
         input_name = input_field.get("name")
         if not input_name or input_field.get("disabled") or input_field.get("readonly"):
             continue
-        
+
         if input_name == field_name:
             form_data[input_name] = payload
         else:
@@ -209,16 +219,20 @@ def test_single_payload(form, base_url, field_name, payload, category, timeout, 
             elif input_type == "password":
                 form_data[input_name] = "password123"
             else:
-                form_data[input_name] = "test"
+                # preserve hidden input values if present, otherwise default
+                if input_type == "hidden" and input_field.get("value") is not None:
+                    form_data[input_name] = input_field.get("value")
+                else:
+                    form_data[input_name] = "test"
 
     try:
         start_time = time.time()
-        
+
         if method == "post":
-            response = session.post(full_url, data=form_data, timeout=timeout, verify=False)
+            response = session.post(full_url, data=form_data, timeout=timeout, verify=certifi.where())
         else:
-            response = session.get(full_url, params=form_data, timeout=timeout, verify=False)
-        
+            response = session.get(full_url, params=form_data, timeout=timeout, verify=certifi.where())
+
         response_time = time.time() - start_time
         indicators, confidence = analyze_response(response, payload, response_time)
 
@@ -234,7 +248,7 @@ def test_single_payload(form, base_url, field_name, payload, category, timeout, 
             "vulnerability_indicators": indicators,
             "confidence_level": confidence
         }
-        
+
         return result
 
     except requests.exceptions.Timeout:
@@ -265,49 +279,69 @@ def test_single_payload(form, base_url, field_name, payload, category, timeout, 
             "error": str(e)
         }
 
+
 def test_sql_injections(form, base_url, timeout=10, session=None, max_workers=3, delay=0.5):
+    """
+    Run SQL payloads across all eligible fields using a thread pool.
+    - delay: maximum jitter (seconds) each worker will wait before sending the request.
+    """
     results = []
     inputs = form.get("inputs", [])
 
     testable_fields = []
     for field in inputs:
-        if (field.get("name") and 
-            not field.get("disabled") and 
+        if (field.get("name") and
+            not field.get("disabled") and
             not field.get("readonly") and
             field.get("type", "").lower() not in ["submit", "button", "reset", "file", "hidden"]):
             testable_fields.append(field.get("name"))
-    
+
     if not testable_fields:
         return results
-   
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = []
-        
-        for field_name in testable_fields:
-            for category, payloads in SQL_PAYLOADS.items():
-                for payload in payloads:
-                    future = executor.submit(
-                        test_single_payload, 
-                        form, base_url, field_name, payload, category, timeout, session
-                    )
-                    futures.append(future)
 
-                    time.sleep(delay)
-   
-        for future in as_completed(futures):
-            try:
-                result = future.result()
-                results.append(result)
-            except Exception:
-                pass
+    futures = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        try:
+            # Submit tasks quickly; each worker will apply its own jitter (delay)
+            for field_name in testable_fields:
+                for category, payloads in SQL_PAYLOADS.items():
+                    for payload in payloads:
+                        future = executor.submit(
+                            test_single_payload,
+                            form, base_url, field_name, payload, category, timeout, session, delay
+                        )
+                        futures.append(future)
+
+            # Collect results as they finish
+            for future in as_completed(futures):
+                try:
+                    r = future.result()
+                    results.append(r)
+                except Exception:
+                    # individual worker failure should not break whole scan
+                    pass
+
+        except KeyboardInterrupt:
+            # Attempt to cancel pending futures and return partial results
+            print("\n[!] Scan interrupted by user. Cancelling pending tasks...")
+            for f in futures:
+                try:
+                    f.cancel()
+                except Exception:
+                    pass
+            # small pause to let threads terminate
+            time.sleep(0.2)
+            return results
 
     return results
 
-def run(base_url=None, file=None, timeout=10, retries=3, user_agent=None, 
+def run(base_url=None, file=None, timeout=10, retries=3, session=None, user_agent=None, 
         max_workers=3, delay=0.5, output_file=None):
     
     all_results = []
-    session = create_session_with_retries(retries, timeout=timeout)
+    if session is None:
+        session = create_session_with_retries(retries, timeout=timeout)
+    session.verify = certifi.where()
     
     if user_agent:
         session.headers.update({'User-Agent': user_agent})
