@@ -122,13 +122,10 @@ def handle_maestro_ui():
     ░▒▓█▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓████████▓▒░▒▓███████▓▒░   ░▒▓█▓▒░   ░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░  
                                                                                                         
     """
-    available_options = list(range(1, 7))
-    selection = """ 1) DoS Attack
-                    2) MITM Attack
-                    3) Phishing Attack
-                    4) Brute Attack
-                    5) XSS Injection
-                    6) SQL Injection
+    available_options = list(range(1, 6))
+    selection = """    1) DoS Attack
+    2) Phishing Attack
+    3) SQL Injection
                 """
     
     while True:
@@ -137,7 +134,7 @@ def handle_maestro_ui():
         print(selection)
 
         try:
-            user_input = input("Select one (press a number from 1 to 8): ").strip()
+            user_input = input("Select one (press a number from 1 to 5): ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\nInput cancelled.")
             return None
@@ -145,7 +142,7 @@ def handle_maestro_ui():
         try:
             choice = int(user_input)
         except ValueError:
-            print("Please enter a number 1–8. Press Enter to try again.")
+            print("Please enter a number 1–5. Press Enter to try again.")
             input()
             continue
 
