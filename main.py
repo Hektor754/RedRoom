@@ -1,7 +1,7 @@
 from core.cli import parse_args
 from categories.recon import hostscan,hostprofile,dnsenum,traceroute,subenum,portscan
 from categories.analysis import cvelookup,webscanner,misconfig_detector
-from categories.exploit import sql_injection_handler
+from categories.exploit import DOS_handler,Phishing_handler,SQLI_Handler
 from Essentials.utils import print_welcome_stamp, handle_maestro_ui
 import sys
 
@@ -17,7 +17,7 @@ def main():
     args = parse_args()
 
     valid_categories = {"recon","analysis","exploit"}
-    valid_tools = {"hostscan","hostprofile","dnsenum","traceroute","subenum","portscan","cvelookup","webscanner","mcdetect","Maestro"}
+    valid_tools = {"hostscan","hostprofile","dnsenum","traceroute","subenum","portscan","cvelookup","webscanner","mcdetect","maestro"}
 
     if args.category not in valid_categories:
         print(f"[!] Error: Invalid category '{args.category}'. Valid options: {', '.join(valid_categories)}")
@@ -75,10 +75,14 @@ def main():
             except Exception as e:
                 print(f"[!] Unexpected error during CVE lookup: {e}")
     elif args.category == "exploit":
-        if args.tool == "Maestro":
-            choice = handle_maestro_ui
+        if args.tool == "maestro":
+            choice = handle_maestro_ui()
             if choice == 1:
-                sql_injection_handler
+                DOS_handler.run()
+            elif choice == 2:
+                Phishing_handler.run()
+            elif choice ==3:
+                SQLI_Handler.run()
 
             
                 
