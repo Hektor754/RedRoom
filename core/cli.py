@@ -92,7 +92,7 @@ def get_parser():
 
     exploit_parser = subparsers.add_parser('exploit', help='Exploit tools')
     exploit_subparsers = exploit_parser.add_subparsers(dest='tool', required=True, help='Exploit tool')
-    maestro = exploit_subparsers.add_parser('Maestro', help='Perform CVE lookup on target(s)')
+    maestro = exploit_subparsers.add_parser('maestro', help='Perform CVE lookup on target(s)')
     
     return parser
 
