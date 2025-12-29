@@ -1,0 +1,13 @@
+beautifulsoup4
+certifi
+colorama
+dnspython
+ifaddr
+ipwhois
+paramiko
+prompt_toolkit
+requests
+scapy
+telnetlib3
+termcolor
+urllib3
